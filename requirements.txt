@@ -1,0 +1,4 @@
+flask>=3.0
+werkzeug>=3.0
+pysnmp>=4.4.12
+pysmi>=1.1

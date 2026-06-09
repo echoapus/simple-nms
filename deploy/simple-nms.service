@@ -1,0 +1,38 @@
+[Unit]
+Description=Simple NMS — Network Management System
+Documentation=file:///opt/simple-nms/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=simplenms
+Group=simplenms
+WorkingDirectory=/opt/simple-nms
+ExecStart=/usr/bin/python3 /opt/simple-nms/main.py /opt/simple-nms/config.json
+Restart=on-failure
+RestartSec=5
+
+# Allow binding to privileged ports (80, 514, 162) without root
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/simple-nms/data
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=simple-nms
+
+# Environment
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

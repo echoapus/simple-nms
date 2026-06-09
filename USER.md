@@ -1,0 +1,254 @@
+# User Guide
+
+## Generating Test Events
+
+### Syslog
+
+Send test syslog messages using `logger` (installed by default on Linux):
+
+```bash
+# Send to local NMS
+logger -n 127.0.0.1 -P 514 --udp -p local0.info "Test syslog: link up on eth0"
+logger -n 127.0.0.1 -P 514 --udp -p local0.err "Test syslog: BGP peer 10.0.0.1 down"
+logger -n 127.0.0.1 -P 514 --udp -p auth.warning "Failed SSH login from 203.0.113.42"
+```
+
+Or with raw UDP using Python:
+
+```bash
+python3 -c "
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.sendto(b'<134>router01 BGP: peer 10.0.0.1 established', ('127.0.0.1', 514))
+s.sendto(b'<131>switch01 SNMP: auth failure from 192.168.1.100', ('127.0.0.1', 514))
+s.close()
+print('Sent 2 syslog messages')
+"
+```
+
+### SNMP Trap
+
+Using `snmptrap` (install: `sudo apt install snmp`):
+
+```bash
+# SNMPv2c linkDown trap
+snmptrap -v2c -c public 127.0.0.1:162 '' \
+    1.3.6.1.6.3.1.1.5.3 \
+    1.3.6.1.2.1.2.2.1.1 i 3
+
+# SNMPv2c custom trap
+snmptrap -v2c -c public 127.0.0.1:162 '' \
+    1.3.6.1.4.1.99999 \
+    1.3.6.1.4.1.99999.1 s "CPU utilization 95%"
+```
+
+### Webhook
+
+Using `curl`:
+
+```bash
+# Deployment event
+curl -X POST http://localhost/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"event":"deploy","service":"web-api","severity":"info","message":"v2.3.1 deployed"}'
+
+# Alert event
+curl -X POST http://localhost/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"event":"alert","service":"db-primary","severity":"crit","message":"disk usage 95%","tags":"ops,critical"}'
+
+# Resolution event
+curl -X POST http://localhost/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"event":"resolve","service":"db-primary","severity":"info","message":"disk cleaned up"}'
+```
+
+---
+
+## Web UI
+
+Open `http://your-server` in a browser.
+
+### KPI Cards
+
+Four cards at the top show total event counts, broken down by type (Syslog / SNMP Trap / Webhook). These update automatically via SSE when new events arrive.
+
+### Event Table
+
+Displays the most recent events with columns:
+- **Time** — UTC timestamp
+- **Source IP** — origin address of the event
+- **Type** — color-coded badge (blue=syslog, amber=snmptrap, green=webhook)
+- **Severity** — dot indicator with color (green=info, yellow=warning, orange=err, red=crit)
+- **Message** — first 100 characters of payload
+
+### Sorting
+
+Click any column header to sort. Click again to toggle ascending/descending. The sort indicator (▲/▼) shows the current direction. Your sort preference is saved in the browser and persists across sessions.
+
+### Global Search
+
+The search box in the header searches across payload, source IP, facility, severity, OID, and tags. Results update after a 300ms pause (debounce) to avoid excessive queries while typing.
+
+### Sidebar Filters
+
+- **Time Range** — Quick buttons (5 min / 1 hour / Today / All) or custom date range picker
+- **Event Type** — Checkboxes to show/hide Syslog, SNMP Trap, Webhook
+- **Source IP** — Text input for prefix matching (e.g., `10.0.0` matches all IPs starting with that prefix)
+- **Clear All Filters** — Reset all filters to default
+
+On mobile (screen width < 768px), the sidebar collapses into a drawer menu — tap the ☰ button in the header to open it.
+
+### Theme
+
+Click the ☀/☽ button in the header to toggle between dark and light themes. Your preference is saved in the browser.
+
+---
+
+## REST API
+
+### GET /api/events
+
+Query events with filters and pagination.
+
+Parameters:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `page` | int | Page number (default: 1) |
+| `per_page` | int | Results per page (default: 50, max: 200) |
+| `sort` | string | Sort column: `ts`, `src_ip`, `type`, `severity`, `id` (default: `ts`) |
+| `order` | string | `asc` or `desc` (default: `desc`) |
+| `type` | string | Comma-separated: `syslog`, `snmptrap`, `webhook` |
+| `src_ip` | string | Source IP prefix match |
+| `severity` | string | Comma-separated severity names |
+| `time_from` | string | ISO 8601 timestamp (inclusive) |
+| `time_to` | string | ISO 8601 timestamp (inclusive) |
+| `q` | string | Full-text search across payload, src_ip, facility, severity, oid, tags |
+
+Example:
+
+```bash
+# Recent syslog errors
+curl "http://localhost/api/events?type=syslog&severity=err,crit&sort=ts&order=desc"
+
+# Search for BGP-related events
+curl "http://localhost/api/events?q=BGP"
+
+# Events from a specific IP in the last hour
+curl "http://localhost/api/events?src_ip=10.0.0.1&time_from=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S)"
+```
+
+### GET /api/kpi
+
+Aggregate event counts.
+
+Parameters:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `time_from` | string | ISO 8601 timestamp |
+| `time_to` | string | ISO 8601 timestamp |
+
+Response:
+
+```json
+{
+  "total": 1685,
+  "syslog": 1284,
+  "snmptrap": 312,
+  "webhook": 89
+}
+```
+
+### GET /api/sse
+
+Server-Sent Events stream. Connect from JavaScript:
+
+```javascript
+const es = new EventSource('/api/sse');
+es.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    console.log('New event:', event);
+};
+```
+
+Each SSE message is a JSON object with the same fields as the events table.
+
+### POST /webhook
+
+Submit a webhook event as JSON.
+
+```bash
+curl -X POST http://localhost/webhook \
+  -H "Content-Type: application/json" \
+  -d '{"event":"test","severity":"info","message":"hello"}'
+```
+
+Response: `202 Accepted` with `{"status": "ok"}`
+
+### GET /health
+
+Health check endpoint.
+
+```bash
+curl http://localhost/health
+# {"status": "healthy", "sse_clients": 2}
+```
+
+---
+
+## Data Retention
+
+Use the cleanup script to purge old events:
+
+```bash
+# Preview what would be deleted
+python3 cleanup.py --days 30 --dry-run
+
+# Delete events older than 30 days
+python3 cleanup.py --days 30
+
+# Delete events older than 7 days
+python3 cleanup.py --days 7
+```
+
+---
+
+## Configuring Network Devices
+
+### Syslog Forwarding
+
+**Cisco IOS:**
+```
+logging host 10.0.0.100 transport udp port 514
+logging trap informational
+```
+
+**Juniper Junos:**
+```
+set system syslog host 10.0.0.100 any info
+set system syslog host 10.0.0.100 port 514
+```
+
+**Linux rsyslog:**
+```
+# /etc/rsyslog.d/50-nms.conf
+*.* @10.0.0.100:514
+```
+
+### SNMP Trap Destination
+
+**Cisco IOS:**
+```
+snmp-server host 10.0.0.100 version 2c public
+snmp-server enable traps
+```
+
+**Juniper Junos:**
+```
+set snmp trap-group nms-traps targets 10.0.0.100
+set snmp trap-group nms-traps version v2
+```
+
+### Webhook Integration
+
+Any system that supports outgoing webhooks can POST JSON to `http://your-server/webhook`. Compatible with Grafana, Prometheus Alertmanager, Zabbix, and custom scripts.

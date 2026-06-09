@@ -1,0 +1,1577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simple NMS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ================================================================
+   CSS Variables — Light & Dark themes
+   ================================================================ */
+:root {
+  --bg-primary: #f0f1f5;
+  --bg-secondary: #ffffff;
+  --bg-sidebar: #f7f8fa;
+  --bg-card: #ffffff;
+  --bg-table-header: #e8eaef;
+  --bg-table-row-hover: #f0f2f7;
+  --bg-table-row-alt: #fafafc;
+  --bg-input: #ffffff;
+  --bg-badge-syslog: #dbeafe;
+  --bg-badge-snmptrap: #fef3c7;
+  --bg-badge-webhook: #d1fae5;
+  --bg-toast: #1e293b;
+
+  --border-primary: #d1d5db;
+  --border-input: #cbd5e1;
+  --border-card: #e2e5ea;
+
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-badge-syslog: #1e40af;
+  --text-badge-snmptrap: #92400e;
+  --text-badge-webhook: #065f46;
+
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-subtle: #eff6ff;
+
+  --severity-emerg:   #991b1b;
+  --severity-alert:   #dc2626;
+  --severity-crit:    #ef4444;
+  --severity-err:     #f97316;
+  --severity-warning: #eab308;
+  --severity-notice:  #3b82f6;
+  --severity-info:    #22c55e;
+  --severity-debug:   #94a3b8;
+
+  --kpi-total: #6366f1;
+  --kpi-syslog: #3b82f6;
+  --kpi-snmptrap: #f59e0b;
+  --kpi-webhook: #10b981;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.1);
+
+  --radius: 6px;
+  --radius-lg: 10px;
+  --transition: 0.2s ease;
+
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
+}
+
+body.dark {
+  --bg-primary: #0f1219;
+  --bg-secondary: #1a1f2e;
+  --bg-sidebar: #141825;
+  --bg-card: #1e2436;
+  --bg-table-header: #252d40;
+  --bg-table-row-hover: #252d40;
+  --bg-table-row-alt: #1a2030;
+  --bg-input: #1a2030;
+  --bg-badge-syslog: #1e3a5f;
+  --bg-badge-snmptrap: #422006;
+  --bg-badge-webhook: #064e3b;
+  --bg-toast: #334155;
+
+  --border-primary: #2d3548;
+  --border-input: #374151;
+  --border-card: #2d3548;
+
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-badge-syslog: #93c5fd;
+  --text-badge-snmptrap: #fcd34d;
+  --text-badge-webhook: #6ee7b7;
+
+  --accent: #60a5fa;
+  --accent-hover: #3b82f6;
+  --accent-subtle: #1e3a5f;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.4);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.5);
+}
+
+/* ================================================================
+   Reset & Base
+   ================================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  transition: background var(--transition), color var(--transition);
+  min-height: 100vh;
+}
+
+/* ================================================================
+   Layout
+   ================================================================ */
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* --- Header --- */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 56px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: var(--shadow-sm);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-logo {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.5px;
+  color: var(--accent);
+}
+
+.header-logo .dot { color: var(--kpi-webhook); }
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--severity-info);
+  animation: pulse 2s infinite;
+}
+
+.status-dot.disconnected {
+  background: var(--severity-err);
+  animation: none;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.sse-indicator {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* Search box */
+.search-box {
+  position: relative;
+  width: 280px;
+}
+
+.search-box input {
+  width: 100%;
+  padding: 7px 12px 7px 32px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  outline: none;
+  transition: border var(--transition), box-shadow var(--transition);
+}
+
+.search-box input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+
+.search-box input::placeholder { color: var(--text-muted); }
+
+.search-box .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+/* Theme toggle */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 13px;
+  transition: all var(--transition);
+  user-select: none;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Sidebar toggle for mobile */
+.sidebar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+/* --- Main layout --- */
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* --- Sidebar --- */
+.sidebar {
+  width: 260px;
+  min-width: 260px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-primary);
+  padding: 20px 16px;
+  overflow-y: auto;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.sidebar-section {
+  margin-bottom: 24px;
+}
+
+.sidebar-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.time-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.time-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.time-btn:hover { border-color: var(--accent); color: var(--accent); }
+.time-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.date-range {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.date-range label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.date-range input[type="datetime-local"] {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+}
+
+.date-range input:focus {
+  border-color: var(--accent);
+}
+
+/* Checkboxes */
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.checkbox-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.checkbox-item .count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* IP filter */
+.ip-filter input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+}
+
+.ip-filter input:focus { border-color: var(--accent); }
+.ip-filter input::placeholder { color: var(--text-muted); }
+
+.clear-filters {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.clear-filters:hover {
+  border-color: var(--severity-err);
+  color: var(--severity-err);
+}
+
+/* --- Content area --- */
+.content {
+  flex: 1;
+  padding: 20px 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* --- KPI Cards --- */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.kpi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition);
+}
+
+.kpi-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+}
+
+.kpi-card.total::before   { background: var(--kpi-total); }
+.kpi-card.syslog::before  { background: var(--kpi-syslog); }
+.kpi-card.snmptrap::before { background: var(--kpi-snmptrap); }
+.kpi-card.webhook::before { background: var(--kpi-webhook); }
+
+.kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.kpi-value {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.kpi-card.total .kpi-value   { color: var(--kpi-total); }
+.kpi-card.syslog .kpi-value  { color: var(--kpi-syslog); }
+.kpi-card.snmptrap .kpi-value { color: var(--kpi-snmptrap); }
+.kpi-card.webhook .kpi-value { color: var(--kpi-webhook); }
+
+/* --- Event table --- */
+.table-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.table-info {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.table-info strong {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+thead th {
+  background: var(--bg-table-header);
+  padding: 10px 14px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-primary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: color var(--transition);
+}
+
+thead th:hover { color: var(--accent); }
+thead th .sort-arrow { margin-left: 4px; font-size: 10px; }
+thead th.sorted { color: var(--accent); }
+
+tbody tr {
+  border-bottom: 1px solid var(--border-primary);
+  transition: background var(--transition);
+}
+
+tbody tr:nth-child(even) { background: var(--bg-table-row-alt); }
+tbody tr:hover { background: var(--bg-table-row-hover); }
+
+tbody td {
+  padding: 9px 14px;
+  vertical-align: top;
+}
+
+.col-ts {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  min-width: 170px;
+}
+
+.col-ip {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+.col-type { min-width: 90px; }
+
+.type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.type-badge.syslog   { background: var(--bg-badge-syslog); color: var(--text-badge-syslog); }
+.type-badge.snmptrap { background: var(--bg-badge-snmptrap); color: var(--text-badge-snmptrap); }
+.type-badge.webhook  { background: var(--bg-badge-webhook); color: var(--text-badge-webhook); }
+
+.col-severity { min-width: 80px; }
+
+.severity-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.severity-dot.emerg   { background: var(--severity-emerg); }
+.severity-dot.alert   { background: var(--severity-alert); }
+.severity-dot.crit    { background: var(--severity-crit); }
+.severity-dot.err     { background: var(--severity-err); }
+.severity-dot.warning { background: var(--severity-warning); }
+.severity-dot.notice  { background: var(--severity-notice); }
+.severity-dot.info    { background: var(--severity-info); }
+.severity-dot.debug   { background: var(--severity-debug); }
+
+.col-payload {
+  max-width: 500px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.col-payload:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Detail modal */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 400;
+  justify-content: center;
+  align-items: center;
+}
+
+.modal-overlay.open {
+  display: flex;
+}
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 90%;
+  max-width: 700px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: modalIn 0.2s ease;
+}
+
+@keyframes modalIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.modal-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.modal-close:hover { color: var(--text-primary); }
+
+.modal-meta {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-primary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12px;
+}
+
+.modal-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modal-meta-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+}
+
+.modal-meta-value {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal-body pre {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin: 0;
+}
+
+.modal-copy {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.modal-copy:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.page-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.page-btn:disabled { opacity: 0.4; cursor: default; }
+.page-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.page-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 12px;
+  font-family: var(--font-mono);
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; opacity: 0.4; }
+.empty-state p { font-size: 14px; }
+
+/* --- Overlay for mobile sidebar --- */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 199;
+}
+
+/* ================================================================
+   Responsive — < 768px
+   ================================================================ */
+@media (max-width: 768px) {
+  .sidebar-toggle { display: flex; }
+  .search-box { width: 160px; }
+
+  .sidebar {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    bottom: 0;
+    z-index: 200;
+    transform: translateX(-100%);
+    opacity: 0;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+    opacity: 1;
+  }
+
+  .sidebar-overlay.open { display: block; }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .content { padding: 16px; }
+
+  .header { padding: 0 12px; }
+
+  .kpi-value { font-size: 22px; }
+  .kpi-card { padding: 12px 14px; }
+}
+
+@media (max-width: 480px) {
+  .kpi-grid { grid-template-columns: 1fr; }
+  .search-box { width: 120px; }
+  .sse-indicator { display: none; }
+}
+
+/* ================================================================
+   Loading animation
+   ================================================================ */
+.loading-bar {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+  z-index: 300;
+  transition: width 0.3s ease;
+}
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: var(--bg-toast);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  box-shadow: var(--shadow-lg);
+  z-index: 500;
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.3s ease;
+}
+
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+</style>
+</head>
+<body class="dark">
+<div class="app">
+  <!-- Loading bar -->
+  <div class="loading-bar" id="loadingBar" style="width:0"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <button class="sidebar-toggle" id="sidebarToggle" title="Toggle filters">&#9776;</button>
+      <div class="header-logo">simple<span class="dot">.</span>nms</div>
+      <div class="header-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="lastUpdate">connecting...</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="sse-indicator" id="sseIndicator">SSE: --</div>
+      <div class="search-box">
+        <span class="search-icon">&#128269;</span>
+        <input type="text" id="globalSearch" placeholder="Search events..." autocomplete="off">
+      </div>
+      <button class="theme-toggle" id="themeToggle">
+        <span id="themeIcon">&#9788;</span>
+        <span id="themeLabel">Light</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- Sidebar overlay (mobile) -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Sidebar filters -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-section">
+        <h3>Time Range</h3>
+        <div class="time-buttons">
+          <button class="time-btn" data-range="5m">5 min</button>
+          <button class="time-btn" data-range="1h">1 hour</button>
+          <button class="time-btn" data-range="today">Today</button>
+          <button class="time-btn active" data-range="all">All</button>
+        </div>
+        <div class="date-range">
+          <label>From</label>
+          <input type="datetime-local" id="timeFrom" step="1">
+          <label>To</label>
+          <input type="datetime-local" id="timeTo" step="1">
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Event Type</h3>
+        <div class="checkbox-group" id="typeFilters">
+          <label class="checkbox-item">
+            <input type="checkbox" value="syslog" checked>
+            <span class="type-badge syslog">Syslog</span>
+            <span class="count" id="countSyslog">0</span>
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" value="snmptrap" checked>
+            <span class="type-badge snmptrap">SNMP Trap</span>
+            <span class="count" id="countSnmptrap">0</span>
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" value="webhook" checked>
+            <span class="type-badge webhook">Webhook</span>
+            <span class="count" id="countWebhook">0</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3>Source IP</h3>
+        <div class="ip-filter">
+          <input type="text" id="srcIpFilter" placeholder="e.g. 10.0.0 or 192.168.1.1" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <button class="clear-filters" id="clearFilters">Clear All Filters</button>
+      </div>
+    </aside>
+
+    <!-- Content -->
+    <main class="content">
+      <!-- KPI Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card total">
+          <div class="kpi-label">Total Events</div>
+          <div class="kpi-value" id="kpiTotal">--</div>
+        </div>
+        <div class="kpi-card syslog">
+          <div class="kpi-label">Syslog</div>
+          <div class="kpi-value" id="kpiSyslog">--</div>
+        </div>
+        <div class="kpi-card snmptrap">
+          <div class="kpi-label">SNMP Trap</div>
+          <div class="kpi-value" id="kpiSnmptrap">--</div>
+        </div>
+        <div class="kpi-card webhook">
+          <div class="kpi-label">Webhook</div>
+          <div class="kpi-value" id="kpiWebhook">--</div>
+        </div>
+      </div>
+
+      <!-- Event Table -->
+      <div class="table-container">
+        <div class="table-toolbar">
+          <div class="table-info">
+            Showing <strong id="showingCount">0</strong> of <strong id="totalCount">0</strong> events
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th data-sort="ts" class="sorted">Time <span class="sort-arrow">&#9660;</span></th>
+                <th data-sort="src_ip">Source IP <span class="sort-arrow"></span></th>
+                <th data-sort="type">Type <span class="sort-arrow"></span></th>
+                <th data-sort="severity">Severity <span class="sort-arrow"></span></th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody id="eventsBody">
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Event Detail</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="modal-copy" id="modalCopy" title="Copy to clipboard">Copy</button>
+        <button class="modal-close" id="modalClose">&times;</button>
+      </div>
+    </div>
+    <div class="modal-meta" id="modalMeta"></div>
+    <div class="modal-body">
+      <pre id="modalContent"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================================================================
+   Simple NMS — Frontend Controller
+   ================================================================ */
+(() => {
+  'use strict';
+
+  // ── State ──
+  const state = {
+    page: 1,
+    perPage: 50,
+    sort: localStorage.getItem('nms_sort') || 'ts',
+    order: localStorage.getItem('nms_order') || 'desc',
+    q: '',
+    types: ['syslog', 'snmptrap', 'webhook'],
+    srcIp: '',
+    timeFrom: '',
+    timeTo: '',
+    timeRange: 'all',
+    totalEvents: 0,
+    totalPages: 1,
+    sseConnected: false,
+    loading: false,
+  };
+
+  // ── DOM refs ──
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => document.querySelectorAll(sel);
+
+  const dom = {
+    body: document.body,
+    loadingBar: $('#loadingBar'),
+    statusDot: $('#statusDot'),
+    lastUpdate: $('#lastUpdate'),
+    sseIndicator: $('#sseIndicator'),
+    globalSearch: $('#globalSearch'),
+    themeToggle: $('#themeToggle'),
+    themeIcon: $('#themeIcon'),
+    themeLabel: $('#themeLabel'),
+    sidebarToggle: $('#sidebarToggle'),
+    sidebar: $('#sidebar'),
+    sidebarOverlay: $('#sidebarOverlay'),
+    timeFrom: $('#timeFrom'),
+    timeTo: $('#timeTo'),
+    srcIpFilter: $('#srcIpFilter'),
+    clearFilters: $('#clearFilters'),
+    kpiTotal: $('#kpiTotal'),
+    kpiSyslog: $('#kpiSyslog'),
+    kpiSnmptrap: $('#kpiSnmptrap'),
+    kpiWebhook: $('#kpiWebhook'),
+    countSyslog: $('#countSyslog'),
+    countSnmptrap: $('#countSnmptrap'),
+    countWebhook: $('#countWebhook'),
+    eventsBody: $('#eventsBody'),
+    showingCount: $('#showingCount'),
+    totalCount: $('#totalCount'),
+    pagination: $('#pagination'),
+    toast: $('#toast'),
+    modalOverlay: $('#modalOverlay'),
+    modalMeta: $('#modalMeta'),
+    modalContent: $('#modalContent'),
+    modalClose: $('#modalClose'),
+    modalCopy: $('#modalCopy'),
+  };
+
+  // ── Helpers ──
+  function debounce(fn, ms) {
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  }
+
+  function formatNumber(n) {
+    if (n == null || isNaN(n)) return '--';
+    return n.toLocaleString();
+  }
+
+  const LOCAL_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+
+  function parseUtcTimestamp(ts) {
+    if (!ts) return null;
+    const d = new Date(ts + (ts.endsWith('Z') ? '' : 'Z'));
+    return isNaN(d) ? null : d;
+  }
+
+  function formatTimestamp(ts) {
+    const d = parseUtcTimestamp(ts);
+    if (!d) return ts || '';
+    const date = d.toLocaleDateString('en-CA');
+    const time = d.toLocaleTimeString('en-GB', { hour12: false });
+    return `${date} ${time}`;
+  }
+
+  function formatUtcTimestamp(ts) {
+    const d = parseUtcTimestamp(ts);
+    return d ? d.toISOString().replace('T', ' ').replace('Z', ' UTC') : (ts || '');
+  }
+
+  function timestampTitle(ts) {
+    return `${LOCAL_TIMEZONE} | ${formatUtcTimestamp(ts)}`;
+  }
+
+  function toDatetimeLocalValue(isoTs) {
+    const d = parseUtcTimestamp(isoTs);
+    if (!d) return '';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  function escapeHtml(s) {
+    if (!s) return '';
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function truncate(s, len) {
+    if (!s) return '';
+    return s.length > len ? s.substring(0, len) + '...' : s;
+  }
+
+  function showToast(msg) {
+    dom.toast.textContent = msg;
+    dom.toast.classList.add('show');
+    setTimeout(() => dom.toast.classList.remove('show'), 3000);
+  }
+
+  function setLoading(on) {
+    state.loading = on;
+    dom.loadingBar.style.width = on ? '70%' : '0';
+    if (!on) setTimeout(() => { dom.loadingBar.style.width = '0'; }, 300);
+  }
+
+  function updateLastUpdate() {
+    const now = new Date();
+    dom.lastUpdate.textContent = now.toLocaleTimeString('en-GB', { hour12: false });
+  }
+
+  // ── API calls ──
+  function buildQueryParams() {
+    const p = new URLSearchParams();
+    p.set('page', state.page);
+    p.set('per_page', state.perPage);
+    p.set('sort', state.sort);
+    p.set('order', state.order);
+    if (state.q) p.set('q', state.q);
+    if (state.types.length < 3) p.set('type', state.types.join(','));
+    if (state.srcIp) p.set('src_ip', state.srcIp);
+    if (state.timeFrom) p.set('time_from', state.timeFrom);
+    if (state.timeTo) p.set('time_to', state.timeTo);
+    return p.toString();
+  }
+
+  function buildKpiParams() {
+    const p = new URLSearchParams();
+    if (state.timeFrom) p.set('time_from', state.timeFrom);
+    if (state.timeTo) p.set('time_to', state.timeTo);
+    return p.toString();
+  }
+
+  async function fetchEvents() {
+    setLoading(true);
+    try {
+      const resp = await fetch(`/api/events?${buildQueryParams()}`);
+      const data = await resp.json();
+      state.totalEvents = data.total;
+      state.totalPages = data.total_pages;
+      renderEvents(data.events);
+      renderPagination();
+      dom.showingCount.textContent = data.events.length;
+      dom.totalCount.textContent = formatNumber(data.total);
+      updateLastUpdate();
+    } catch (err) {
+      console.error('Failed to fetch events:', err);
+    }
+    setLoading(false);
+  }
+
+  async function fetchKpi() {
+    try {
+      const resp = await fetch(`/api/kpi?${buildKpiParams()}`);
+      const data = await resp.json();
+      animateKpi(dom.kpiTotal, data.total);
+      animateKpi(dom.kpiSyslog, data.syslog);
+      animateKpi(dom.kpiSnmptrap, data.snmptrap);
+      animateKpi(dom.kpiWebhook, data.webhook);
+      dom.countSyslog.textContent = formatNumber(data.syslog);
+      dom.countSnmptrap.textContent = formatNumber(data.snmptrap);
+      dom.countWebhook.textContent = formatNumber(data.webhook);
+    } catch (err) {
+      console.error('Failed to fetch KPI:', err);
+    }
+  }
+
+  function animateKpi(el, target) {
+    const current = parseInt(el.textContent.replace(/,/g, '')) || 0;
+    if (current === target) { el.textContent = formatNumber(target); return; }
+    const diff = target - current;
+    const steps = 15;
+    let step = 0;
+    const interval = setInterval(() => {
+      step++;
+      const val = Math.round(current + (diff * (step / steps)));
+      el.textContent = formatNumber(val);
+      if (step >= steps) { clearInterval(interval); el.textContent = formatNumber(target); }
+    }, 20);
+  }
+
+  // ── Rendering ──
+  // Store current events for modal access
+  let currentEvents = [];
+
+  function renderEvents(events) {
+    currentEvents = events;
+    if (!events.length) {
+      dom.eventsBody.innerHTML = `
+        <tr><td colspan="5">
+          <div class="empty-state">
+            <div class="icon">&#128225;</div>
+            <p>No events found matching your filters.</p>
+          </div>
+        </td></tr>`;
+      return;
+    }
+    dom.eventsBody.innerHTML = events.map((e, idx) => {
+      const payload = truncate(e.payload_preview || e.payload || e.oid || '', 100);
+      const severityClass = e.severity || '';
+      return `<tr>
+        <td class="col-ts" title="${escapeHtml(timestampTitle(e.ts))}">${escapeHtml(formatTimestamp(e.ts))}</td>
+        <td class="col-ip">${escapeHtml(e.src_ip || '')}</td>
+        <td class="col-type"><span class="type-badge ${e.type}">${escapeHtml(e.type)}</span></td>
+        <td class="col-severity">${e.severity ? `<span class="severity-dot ${severityClass}"></span>${escapeHtml(e.severity)}` : '<span style="color:var(--text-muted)">—</span>'}</td>
+        <td class="col-payload" onclick="NMS.showDetail(${idx})">${escapeHtml(payload)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function showDetailModal(idx) {
+    const e = currentEvents[idx];
+    if (!e) return;
+
+    // Build meta info
+    dom.modalMeta.innerHTML = [
+      { label: `Time (${LOCAL_TIMEZONE})`, value: formatTimestamp(e.ts) },
+      { label: 'UTC Time', value: formatUtcTimestamp(e.ts) },
+      { label: 'Source', value: e.src_ip || '—' },
+      { label: 'Type', value: e.type },
+      { label: 'Facility', value: e.facility || '—' },
+      { label: 'Severity', value: e.severity || '—' },
+      { label: 'OID', value: e.oid || '—' },
+    ].map(m => `<div class="modal-meta-item"><span class="modal-meta-label">${m.label}</span><span class="modal-meta-value">${escapeHtml(m.value)}</span></div>`).join('');
+
+    // Format payload — try to pretty-print JSON
+    let content = e.payload || e.varbinds || '(no content)';
+    try {
+      const parsed = JSON.parse(content);
+      content = JSON.stringify(parsed, null, 2);
+    } catch (_) {}
+    dom.modalContent.textContent = content;
+
+    dom.modalOverlay.classList.add('open');
+  }
+
+  function closeDetailModal() {
+    dom.modalOverlay.classList.remove('open');
+  }
+
+  function renderPagination() {
+    const { page, totalPages } = state;
+    if (totalPages <= 1) { dom.pagination.innerHTML = ''; return; }
+
+    let html = '';
+    html += `<button class="page-btn" onclick="NMS.goPage(1)" ${page <= 1 ? 'disabled' : ''}>&#171;</button>`;
+    html += `<button class="page-btn" onclick="NMS.goPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>&#8249;</button>`;
+
+    // Show page numbers
+    let start = Math.max(1, page - 2);
+    let end = Math.min(totalPages, page + 2);
+    if (start > 1) html += `<span class="page-info">...</span>`;
+    for (let i = start; i <= end; i++) {
+      html += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="NMS.goPage(${i})">${i}</button>`;
+    }
+    if (end < totalPages) html += `<span class="page-info">...</span>`;
+
+    html += `<button class="page-btn" onclick="NMS.goPage(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>&#8250;</button>`;
+    html += `<button class="page-btn" onclick="NMS.goPage(${totalPages})" ${page >= totalPages ? 'disabled' : ''}>&#187;</button>`;
+
+    dom.pagination.innerHTML = html;
+  }
+
+  // ── Sort ──
+  function handleSort(col) {
+    if (state.sort === col) {
+      state.order = state.order === 'desc' ? 'asc' : 'desc';
+    } else {
+      state.sort = col;
+      state.order = col === 'ts' ? 'desc' : 'asc';
+    }
+    localStorage.setItem('nms_sort', state.sort);
+    localStorage.setItem('nms_order', state.order);
+    state.page = 1;
+    updateSortUI();
+    fetchEvents();
+  }
+
+  function updateSortUI() {
+    $$('thead th[data-sort]').forEach(th => {
+      const col = th.dataset.sort;
+      const arrow = th.querySelector('.sort-arrow');
+      if (col === state.sort) {
+        th.classList.add('sorted');
+        arrow.innerHTML = state.order === 'desc' ? '&#9660;' : '&#9650;';
+      } else {
+        th.classList.remove('sorted');
+        arrow.innerHTML = '';
+      }
+    });
+  }
+
+  // ── Time range ──
+  function setTimeRange(range) {
+    state.timeRange = range;
+    $$('.time-btn').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+
+    const now = new Date();
+    let from = '';
+    let to = '';
+
+    switch (range) {
+      case '5m':
+        from = new Date(now.getTime() - 5 * 60000).toISOString();
+        break;
+      case '1h':
+        from = new Date(now.getTime() - 3600000).toISOString();
+        break;
+      case 'today':
+        from = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        break;
+      case 'all':
+        from = '';
+        to = '';
+        break;
+      case 'custom':
+        return; // Use the date inputs directly
+    }
+
+    state.timeFrom = from;
+    state.timeTo = to;
+    dom.timeFrom.value = toDatetimeLocalValue(from);
+    dom.timeTo.value = toDatetimeLocalValue(to);
+    state.page = 1;
+    refresh();
+  }
+
+  // ── SSE ──
+  let eventSource = null;
+  let sseEventCount = 0;
+
+  function connectSSE() {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource('/api/sse');
+
+    eventSource.onopen = () => {
+      state.sseConnected = true;
+      dom.statusDot.classList.remove('disconnected');
+      dom.sseIndicator.textContent = 'SSE: connected';
+    };
+
+    eventSource.onmessage = (e) => {
+      sseEventCount++;
+      dom.sseIndicator.textContent = `SSE: ${sseEventCount}`;
+      // Refresh data on new events (debounced)
+      debouncedRefresh();
+    };
+
+    eventSource.onerror = () => {
+      state.sseConnected = false;
+      dom.statusDot.classList.add('disconnected');
+      dom.sseIndicator.textContent = 'SSE: reconnecting...';
+    };
+  }
+
+  const debouncedRefresh = debounce(() => {
+    fetchEvents();
+    fetchKpi();
+    updateLastUpdate();
+  }, 500);
+
+  // ── Theme ──
+  function initTheme() {
+    const saved = localStorage.getItem('nms_theme');
+    if (saved === 'light') {
+      dom.body.classList.remove('dark');
+    }
+    updateThemeUI();
+  }
+
+  function toggleTheme() {
+    dom.body.classList.toggle('dark');
+    localStorage.setItem('nms_theme', dom.body.classList.contains('dark') ? 'dark' : 'light');
+    updateThemeUI();
+  }
+
+  function updateThemeUI() {
+    const isDark = dom.body.classList.contains('dark');
+    dom.themeIcon.innerHTML = isDark ? '&#9788;' : '&#9790;';
+    dom.themeLabel.textContent = isDark ? 'Light' : 'Dark';
+  }
+
+  // ── Sidebar (mobile) ──
+  function toggleSidebar() {
+    dom.sidebar.classList.toggle('open');
+    dom.sidebarOverlay.classList.toggle('open');
+  }
+
+  function closeSidebar() {
+    dom.sidebar.classList.remove('open');
+    dom.sidebarOverlay.classList.remove('open');
+  }
+
+  // ── Clear filters ──
+  function clearFilters() {
+    state.q = '';
+    state.srcIp = '';
+    state.types = ['syslog', 'snmptrap', 'webhook'];
+    state.page = 1;
+    dom.globalSearch.value = '';
+    dom.srcIpFilter.value = '';
+    $$('#typeFilters input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+    setTimeRange('all');
+  }
+
+  // ── Refresh all ──
+  function refresh() {
+    fetchEvents();
+    fetchKpi();
+  }
+
+  // ── Event listeners ──
+  function bindEvents() {
+    // Global search (300ms debounce)
+    dom.globalSearch.addEventListener('input', debounce(() => {
+      state.q = dom.globalSearch.value.trim();
+      state.page = 1;
+      fetchEvents();
+    }, 300));
+
+    // Theme
+    dom.themeToggle.addEventListener('click', toggleTheme);
+
+    // Sidebar
+    dom.sidebarToggle.addEventListener('click', toggleSidebar);
+    dom.sidebarOverlay.addEventListener('click', closeSidebar);
+
+    // Time range buttons
+    $$('.time-btn').forEach(btn => {
+      btn.addEventListener('click', () => setTimeRange(btn.dataset.range));
+    });
+
+    // Custom date inputs
+    dom.timeFrom.addEventListener('change', () => {
+      state.timeFrom = dom.timeFrom.value ? new Date(dom.timeFrom.value).toISOString() : '';
+      state.timeRange = 'custom';
+      $$('.time-btn').forEach(b => b.classList.remove('active'));
+      state.page = 1;
+      refresh();
+    });
+
+    dom.timeTo.addEventListener('change', () => {
+      state.timeTo = dom.timeTo.value ? new Date(dom.timeTo.value).toISOString() : '';
+      state.timeRange = 'custom';
+      $$('.time-btn').forEach(b => b.classList.remove('active'));
+      state.page = 1;
+      refresh();
+    });
+
+    // Type checkboxes
+    $$('#typeFilters input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        state.types = [...$$('#typeFilters input[type="checkbox"]:checked')].map(c => c.value);
+        if (state.types.length === 0) state.types = ['syslog', 'snmptrap', 'webhook'];
+        state.page = 1;
+        fetchEvents();
+      });
+    });
+
+    // IP filter (debounced)
+    dom.srcIpFilter.addEventListener('input', debounce(() => {
+      state.srcIp = dom.srcIpFilter.value.trim();
+      state.page = 1;
+      fetchEvents();
+    }, 300));
+
+    // Sort headers
+    $$('thead th[data-sort]').forEach(th => {
+      th.addEventListener('click', () => handleSort(th.dataset.sort));
+    });
+
+    // Clear filters
+    dom.clearFilters.addEventListener('click', clearFilters);
+
+    // Modal
+    dom.modalClose.addEventListener('click', closeDetailModal);
+    dom.modalOverlay.addEventListener('click', (e) => {
+      if (e.target === dom.modalOverlay) closeDetailModal();
+    });
+    dom.modalCopy.addEventListener('click', () => {
+      navigator.clipboard.writeText(dom.modalContent.textContent).then(() => {
+        dom.modalCopy.textContent = 'Copied!';
+        setTimeout(() => { dom.modalCopy.textContent = 'Copy'; }, 1500);
+      });
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeDetailModal();
+    });
+  }
+
+  // ── Public API for pagination buttons ──
+  window.NMS = {
+    goPage(p) {
+      state.page = Math.max(1, Math.min(p, state.totalPages));
+      fetchEvents();
+    },
+    showDetail(idx) {
+      showDetailModal(idx);
+    }
+  };
+
+  // ── Init ──
+  function init() {
+    initTheme();
+    updateSortUI();
+    bindEvents();
+    refresh();
+    connectSSE();
+
+    // Periodic refresh as fallback (every 30s)
+    setInterval(() => {
+      if (!state.loading) refresh();
+    }, 30000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
