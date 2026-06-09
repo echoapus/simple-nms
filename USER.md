@@ -96,6 +96,7 @@ The search box in the header searches across payload, source IP, facility, sever
 - **Event Type** — Checkboxes to show/hide Syslog, SNMP Trap, Webhook
 - **Source IP** — Text input for prefix matching (e.g., `10.0.0` matches all IPs starting with that prefix)
 - **Clear All Filters** — Reset all filters to default
+- **Clear Old Events** — Opens a confirmation dialog. Select a date to permanently delete events before that date.
 
 On mobile (screen width < 768px), the sidebar collapses into a drawer menu — tap the ☰ button in the header to open it.
 
@@ -192,6 +193,16 @@ Health check endpoint.
 ```bash
 curl http://localhost/health
 # {"status": "healthy", "sse_clients": 2}
+```
+
+### POST /api/events/cleanup
+
+Delete events older than a selected cutoff timestamp. This is used by the Web UI cleanup confirmation dialog.
+
+```bash
+curl -X POST http://localhost/api/events/cleanup \
+  -H "Content-Type: application/json" \
+  -d '{"before_ts":"2026-01-01T00:00:00.000"}'
 ```
 
 ---

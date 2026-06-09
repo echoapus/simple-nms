@@ -413,6 +413,24 @@ body {
   color: var(--severity-err);
 }
 
+.clear-events {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--severity-err);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--severity-err);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.clear-events:hover {
+  background: var(--severity-err);
+  color: #fff;
+}
+
 /* --- Content area --- */
 .content {
   flex: 1;
@@ -739,6 +757,89 @@ tbody td {
 
 .modal-copy:hover { border-color: var(--accent); color: var(--accent); }
 
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+}
+
+.modal-form label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.modal-form input[type="date"] {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+}
+
+.modal-form input[type="date"]:focus {
+  border-color: var(--accent);
+}
+
+.modal-warning {
+  padding: 10px 12px;
+  border: 1px solid rgba(249,115,22,0.45);
+  border-radius: var(--radius);
+  background: rgba(249,115,22,0.12);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.modal-secondary,
+.modal-danger {
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.modal-secondary {
+  border: 1px solid var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+}
+
+.modal-secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.modal-danger {
+  border: 1px solid var(--severity-err);
+  background: var(--severity-err);
+  color: #fff;
+}
+
+.modal-danger:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.modal-danger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* Pagination */
 .pagination {
   display: flex;
@@ -953,6 +1054,11 @@ tbody td {
       <div class="sidebar-section">
         <button class="clear-filters" id="clearFilters">Clear All Filters</button>
       </div>
+
+      <div class="sidebar-section">
+        <h3>Maintenance</h3>
+        <button class="clear-events" id="openCleanupModal">Clear Old Events</button>
+      </div>
     </aside>
 
     <!-- Content -->
@@ -1022,6 +1128,27 @@ tbody td {
   </div>
 </div>
 
+<!-- Cleanup Confirmation Modal -->
+<div class="modal-overlay" id="cleanupModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Clear Old Events</h3>
+      <button class="modal-close" id="cleanupClose">&times;</button>
+    </div>
+    <div class="modal-form">
+      <label for="cleanupDate">Delete events before this date</label>
+      <input type="date" id="cleanupDate">
+      <div class="modal-warning" id="cleanupSummary">
+        This permanently deletes events older than the selected date.
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-secondary" id="cleanupCancel">Cancel</button>
+      <button class="modal-danger" id="cleanupConfirm">Delete Events</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -1071,6 +1198,7 @@ tbody td {
     timeTo: $('#timeTo'),
     srcIpFilter: $('#srcIpFilter'),
     clearFilters: $('#clearFilters'),
+    openCleanupModal: $('#openCleanupModal'),
     kpiTotal: $('#kpiTotal'),
     kpiSyslog: $('#kpiSyslog'),
     kpiSnmptrap: $('#kpiSnmptrap'),
@@ -1088,6 +1216,12 @@ tbody td {
     modalContent: $('#modalContent'),
     modalClose: $('#modalClose'),
     modalCopy: $('#modalCopy'),
+    cleanupModal: $('#cleanupModal'),
+    cleanupClose: $('#cleanupClose'),
+    cleanupCancel: $('#cleanupCancel'),
+    cleanupConfirm: $('#cleanupConfirm'),
+    cleanupDate: $('#cleanupDate'),
+    cleanupSummary: $('#cleanupSummary'),
   };
 
   // ── Helpers ──
@@ -1131,6 +1265,11 @@ tbody td {
     if (!d) return '';
     const pad = n => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  }
+
+  function toDateInputValue(d) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   }
 
   function escapeHtml(s) {
@@ -1218,6 +1357,45 @@ tbody td {
     }
   }
 
+  async function cleanupEvents() {
+    const selectedDate = dom.cleanupDate.value;
+    if (!selectedDate) {
+      showToast('Select a cutoff date first');
+      return;
+    }
+
+    const cutoff = new Date(`${selectedDate}T00:00:00`);
+    if (isNaN(cutoff)) {
+      showToast('Invalid cutoff date');
+      return;
+    }
+
+    dom.cleanupConfirm.disabled = true;
+    dom.cleanupConfirm.textContent = 'Deleting...';
+    setLoading(true);
+    try {
+      const resp = await fetch('/api/events/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ before_ts: cutoff.toISOString().replace('Z', '') }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'cleanup failed');
+
+      closeCleanupModal();
+      state.page = 1;
+      refresh();
+      showToast(`Deleted ${formatNumber(data.deleted)} events`);
+    } catch (err) {
+      console.error('Failed to cleanup events:', err);
+      showToast('Failed to delete events');
+    } finally {
+      dom.cleanupConfirm.disabled = false;
+      dom.cleanupConfirm.textContent = 'Delete Events';
+      setLoading(false);
+    }
+  }
+
   function animateKpi(el, target) {
     const current = parseInt(el.textContent.replace(/,/g, '')) || 0;
     if (current === target) { el.textContent = formatNumber(target); return; }
@@ -1289,6 +1467,27 @@ tbody td {
 
   function closeDetailModal() {
     dom.modalOverlay.classList.remove('open');
+  }
+
+  function openCleanupModal() {
+    dom.cleanupDate.value = toDateInputValue(new Date());
+    updateCleanupSummary();
+    dom.cleanupModal.classList.add('open');
+  }
+
+  function closeCleanupModal() {
+    dom.cleanupModal.classList.remove('open');
+  }
+
+  function updateCleanupSummary() {
+    const selectedDate = dom.cleanupDate.value;
+    if (!selectedDate) {
+      dom.cleanupSummary.textContent = 'Select a date. Events before that date will be permanently deleted.';
+      return;
+    }
+    const cutoff = new Date(`${selectedDate}T00:00:00`);
+    dom.cleanupSummary.textContent =
+      `This permanently deletes events before ${cutoff.toLocaleString()} (${LOCAL_TIMEZONE}).`;
   }
 
   function renderPagination() {
@@ -1525,6 +1724,16 @@ tbody td {
     // Clear filters
     dom.clearFilters.addEventListener('click', clearFilters);
 
+    // Cleanup modal
+    dom.openCleanupModal.addEventListener('click', openCleanupModal);
+    dom.cleanupClose.addEventListener('click', closeCleanupModal);
+    dom.cleanupCancel.addEventListener('click', closeCleanupModal);
+    dom.cleanupDate.addEventListener('change', updateCleanupSummary);
+    dom.cleanupConfirm.addEventListener('click', cleanupEvents);
+    dom.cleanupModal.addEventListener('click', (e) => {
+      if (e.target === dom.cleanupModal) closeCleanupModal();
+    });
+
     // Modal
     dom.modalClose.addEventListener('click', closeDetailModal);
     dom.modalOverlay.addEventListener('click', (e) => {
@@ -1537,7 +1746,10 @@ tbody td {
       });
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeDetailModal();
+      if (e.key === 'Escape') {
+        closeDetailModal();
+        closeCleanupModal();
+      }
     });
   }
 

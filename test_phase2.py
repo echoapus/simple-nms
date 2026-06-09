@@ -231,6 +231,36 @@ def test_api_events_combined():
     w.stop(); w.join(timeout=2)
 
 
+def test_api_events_cleanup():
+    print("\n=== POST /api/events/cleanup ===")
+    _, w, _, c = seed_db()
+
+    r = c.post("/api/events/cleanup",
+               data=json.dumps({"before_ts": "2026-04-13T09:00:00.000"}),
+               headers={"Content-Type": "application/json"})
+    check("Cleanup HTTP 200", r.status_code == 200)
+    d = r.get_json()
+    check("Cleanup deleted 4 old events", d["deleted"] == 4, f"got {d.get('deleted')}")
+    check("Cleanup total_after=3", d["total_after"] == 3, f"got {d.get('total_after')}")
+
+    r = c.get("/api/events?sort=ts&order=asc")
+    d = r.get_json()
+    check("Remaining events are at/after cutoff",
+          all(e["ts"] >= "2026-04-13T09:00:00.000" for e in d["events"]))
+
+    r = c.post("/api/events/cleanup",
+               data=json.dumps({}),
+               headers={"Content-Type": "application/json"})
+    check("Cleanup missing cutoff -> 400", r.status_code == 400)
+
+    r = c.post("/api/events/cleanup",
+               data=json.dumps({"before_ts": "not-a-date"}),
+               headers={"Content-Type": "application/json"})
+    check("Cleanup invalid cutoff -> 400", r.status_code == 400)
+
+    w.stop(); w.join(timeout=2)
+
+
 def test_sse_hub():
     print("\n=== SSE Hub ===")
     hub = SSEHub()
@@ -362,6 +392,7 @@ if __name__ == "__main__":
     test_api_events_filters()
     test_api_events_sorting()
     test_api_events_combined()
+    test_api_events_cleanup()
     test_sse_hub()
     test_api_status()
     test_sse_db_integration()

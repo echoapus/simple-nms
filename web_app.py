@@ -168,6 +168,39 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
     def api_status():
         return jsonify(runtime_status()), 200
 
+    @app.route("/api/events/cleanup", methods=["POST"])
+    def api_events_cleanup():
+        body = request.get_json(silent=True) or {}
+        before_ts = body.get("before_ts")
+        if not before_ts or not isinstance(before_ts, str):
+            return jsonify({"error": "before_ts is required"}), 400
+
+        try:
+            cutoff = before_ts.rstrip("Z")
+            datetime.fromisoformat(cutoff)
+        except ValueError:
+            return jsonify({"error": "before_ts must be an ISO 8601 timestamp"}), 400
+
+        db = get_db()
+        total_before = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        to_delete = db.execute(
+            "SELECT COUNT(*) FROM events WHERE ts < ?",
+            (cutoff,),
+        ).fetchone()[0]
+        db.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
+        db.commit()
+        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        total_after = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
+        logger.info("Deleted %d events older than %s via Web UI", to_delete, cutoff)
+        return jsonify({
+            "status": "ok",
+            "before_ts": cutoff,
+            "deleted": to_delete,
+            "total_before": total_before,
+            "total_after": total_after,
+        }), 200
+
     # ------------------------------------------------------------------
     # REST API — GET /api/events
     # ------------------------------------------------------------------

@@ -102,6 +102,9 @@ def test_html_structure():
     check("Type filter checkboxes", 'value="syslog"' in html)
     check("Source IP filter", 'id="srcIpFilter"' in html)
     check("Clear filters button", 'id="clearFilters"' in html)
+    check("Cleanup button", 'id="openCleanupModal"' in html)
+    check("Cleanup date picker", 'id="cleanupDate"' in html)
+    check("Cleanup confirm button", 'id="cleanupConfirm"' in html)
 
     # Event table
     check("Events table body", 'id="eventsBody"' in html)
@@ -154,6 +157,7 @@ def test_js_features():
 
     # API integration
     check("JS fetches /api/events", "/api/events" in html)
+    check("JS posts /api/events/cleanup", "/api/events/cleanup" in html)
     check("JS fetches /api/kpi", "/api/kpi" in html)
     check("JS connects to /api/sse", "/api/sse" in html)
     check("JS displays UTC timestamp in detail", "UTC Time" in html)
