@@ -5,12 +5,13 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
 ## Features
 
 - **Three event collectors** running in parallel threads:
-  - Syslog (UDP 514) — RFC 3164 PRI parsing for facility/severity
+  - Syslog (UDP 514) — RFC 3164 and RFC 5424 parsing (structured data to JSON, header metadata as tags)
   - SNMP Trap (UDP 162) — via pysnmp, varbinds stored as JSON
   - Webhook (HTTP POST `/webhook`) — JSON ingestion
 - **SQLite storage** with WAL mode for concurrent writes, batched inserts (~5,000+ events/sec)
 - **Real-time web dashboard** on port 80:
   - KPI cards (total / syslog / snmptrap / webhook counts)
+  - Interactive Tabs: **Live Feed** and **Analytics Dashboard** (Event timeline, type distribution, severity breakdown, top source IPs)
   - Filterable event table with column sorting
   - Global search with 300ms debounce
   - Time range selector (5min / 1hr / today / custom)

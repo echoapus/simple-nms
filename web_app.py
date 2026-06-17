@@ -344,6 +344,124 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
         })
 
     # ------------------------------------------------------------------
+    # REST API — GET /api/analytics
+    # ------------------------------------------------------------------
+    @app.route("/api/analytics", methods=["GET"])
+    def api_analytics():
+        db = get_db()
+
+        # Build WHERE clauses
+        conditions = []
+        params = []
+
+        # Time range
+        time_from = request.args.get("time_from")
+        time_to = request.args.get("time_to")
+        if time_from:
+            conditions.append("ts >= ?")
+            params.append(time_from)
+        if time_to:
+            conditions.append("ts <= ?")
+            params.append(time_to)
+
+        # Event type filter (comma-separated)
+        types = request.args.get("type")
+        if types:
+            type_list = [t.strip() for t in types.split(",") if t.strip()]
+            if type_list:
+                placeholders = ",".join("?" * len(type_list))
+                conditions.append(f"type IN ({placeholders})")
+                params.extend(type_list)
+
+        # Source IP filter (prefix match)
+        src_ip = request.args.get("src_ip")
+        if src_ip:
+            conditions.append("src_ip LIKE ?")
+            params.append(f"{src_ip}%")
+
+        # Severity filter
+        severity = request.args.get("severity")
+        if severity:
+            sev_list = [s.strip() for s in severity.split(",") if s.strip()]
+            if sev_list:
+                placeholders = ",".join("?" * len(sev_list))
+                conditions.append(f"severity IN ({placeholders})")
+                params.extend(sev_list)
+
+        # Global search
+        q = request.args.get("q")
+        if q:
+            conditions.append(
+                "(payload LIKE ? OR src_ip LIKE ? OR facility LIKE ? "
+                "OR severity LIKE ? OR oid LIKE ? OR tags LIKE ?)"
+            )
+            like = f"%{q}%"
+            params.extend([like] * 6)
+
+        where = ""
+        if conditions:
+            where = "WHERE " + " AND ".join(conditions)
+
+        # 1. Group by type
+        type_rows = db.execute(
+            f"SELECT type, COUNT(*) as count FROM events {where} GROUP BY type",
+            params
+        ).fetchall()
+        types_res = {r["type"]: r["count"] for r in type_rows}
+        for t in ("syslog", "snmptrap", "webhook"):
+            types_res.setdefault(t, 0)
+
+        # 2. Group by severity
+        sev_rows = db.execute(
+            f"SELECT severity, COUNT(*) as count FROM events {where} GROUP BY severity",
+            params
+        ).fetchall()
+        severities_res = {r["severity"] if r["severity"] else "none": r["count"] for r in sev_rows}
+
+        # 3. Top source IPs
+        ip_rows = db.execute(
+            f"SELECT src_ip, COUNT(*) as count FROM events {where} GROUP BY src_ip ORDER BY count DESC LIMIT 10",
+            params
+        ).fetchall()
+        top_ips_res = [{"ip": r["src_ip"] if r["src_ip"] else "unknown", "count": r["count"]} for r in ip_rows]
+
+        # 4. Timeline buckets (daily vs hourly)
+        span_row = db.execute(
+            f"SELECT MIN(ts), MAX(ts) FROM events {where}",
+            params
+        ).fetchone()
+
+        scale = "hour"
+        if span_row and span_row[0] and span_row[1]:
+            try:
+                min_t = datetime.fromisoformat(span_row[0].rstrip("Z").replace(" ", "T"))
+                max_t = datetime.fromisoformat(span_row[1].rstrip("Z").replace(" ", "T"))
+                diff_days = (max_t - min_t).days
+                if diff_days > 3:
+                    scale = "day"
+            except ValueError:
+                pass
+
+        if scale == "day":
+            strftime_clause = "strftime('%Y-%m-%d', ts)"
+        else:
+            strftime_clause = "strftime('%Y-%m-%dT%H:00:00', ts)"
+
+        timeline_rows = db.execute(
+            f"SELECT {strftime_clause} as bucket, COUNT(*) as count FROM events {where} GROUP BY bucket ORDER BY bucket ASC",
+            params
+        ).fetchall()
+        timeline_res = [{"time": r["bucket"], "count": r["count"]} for r in timeline_rows]
+
+        return jsonify({
+            "types": types_res,
+            "severities": severities_res,
+            "top_ips": top_ips_res,
+            "timeline": timeline_res,
+            "timeline_scale": scale
+        })
+
+    # ------------------------------------------------------------------
     # SSE — GET /api/sse
     # ------------------------------------------------------------------
     @app.route("/api/sse", methods=["GET"])

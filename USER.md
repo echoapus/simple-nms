@@ -26,6 +26,19 @@ print('Sent 2 syslog messages')
 "
 ```
 
+Or send an RFC 5424 formatted message with structured data:
+
+```bash
+python3 -c "
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+msg = b'<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evtsys 1234 ID47 [exampleSDID@32473 iut=\"3\" eventSource=\"Application\" eventID=\"1011\"] An application event log entry...'
+s.sendto(msg, ('127.0.0.1', 514))
+s.close()
+print('Sent RFC 5424 syslog message')
+"
+```
+
 ### SNMP Trap
 
 Using `snmptrap` (install: `sudo apt install snmp`):
@@ -81,6 +94,17 @@ Displays the most recent events with columns:
 - **Type** — color-coded badge (blue=syslog, amber=snmptrap, green=webhook)
 - **Severity** — dot indicator with color (green=info, yellow=warning, orange=err, red=crit)
 - **Message** — first 100 characters of payload
+
+### View Switcher Tabs
+
+Toggle the main page panel view:
+- **Live Feed** — Displays the standard Event Table list.
+- **Analytics** — Renders interactive charts powered by Chart.js, including:
+  - **Event Volume Timeline**: Displays log frequency (auto-scales between hourly and daily buckets).
+  - **Event Types**: Doughnut chart breaking down event ingestion shares.
+  - **Severity Levels**: Horizontal bar chart outlining severity breakdowns.
+  - **Top Sources**: Bar chart presenting the top 10 most active reporting source IPs.
+  *Note: Charts automatically react to active sidebar filter parameters and update in real-time.*
 
 ### Sorting
 
@@ -157,6 +181,36 @@ Response:
   "syslog": 1284,
   "snmptrap": 312,
   "webhook": 89
+}
+```
+
+### GET /api/analytics
+
+Query aggregate event distributions and timelines for visualization charts. It accepts the same filter parameters as `GET /api/events` (e.g., `time_from`, `time_to`, `type`, `src_ip`, `severity`, and `q`).
+
+Response structure:
+```json
+{
+  "types": {
+    "syslog": 3,
+    "snmptrap": 2,
+    "webhook": 2
+  },
+  "severities": {
+    "info": 4,
+    "err": 1,
+    "warning": 1,
+    "crit": 1
+  },
+  "top_ips": [
+    { "ip": "10.0.0.1", "count": 2 },
+    { "ip": "127.0.0.1", "count": 2 }
+  ],
+  "timeline": [
+    { "time": "2026-06-17T12:00:00", "count": 3 },
+    { "time": "2026-06-17T13:00:00", "count": 4 }
+  ],
+  "timeline_scale": "hour"
 }
 ```
 

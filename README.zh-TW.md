@@ -10,9 +10,9 @@ Simple NMS 是一套輕量級的網路管理系統，設計目標是用最少的
 
 ### 核心能力
 
-- **三種事件來源**：Syslog（UDP 514）、SNMP Trap（UDP 162）、Webhook（HTTP POST）
+- **三種事件來源**：Syslog（UDP 514，支援 RFC 3164 與 RFC 5424）、SNMP Trap（UDP 162）、Webhook（HTTP POST）
 - **統一儲存**：所有事件寫入單一 SQLite 資料庫，易於備份與查詢
-- **即時儀表板**：瀏覽器開啟即可使用，支援過濾、搜尋、排序、亮/暗主題
+- **即時儀表板**：瀏覽器開啟即可使用，支援即時事件、視覺化統計圖表、過濾、搜尋、排序、亮/暗主題
 - **MIB 解析**：自動將 SNMP OID 翻譯為人類可讀的名稱（如 `IF-MIB::ifIndex`）
 - **零外部依賴**：僅需 Python 3.9+ 與三個 pip 套件
 
@@ -59,7 +59,7 @@ Simple NMS 是一套輕量級的網路管理系統，設計目標是用最少的
 | 執行緒 | 名稱 | 職責 |
 |--------|------|------|
 | Main Thread | `main` | 載入設定、啟動所有元件、處理 SIGINT/SIGTERM 信號 |
-| Thread 1 | `syslog-collector` | 監聽 UDP 514，解析 RFC 3164 PRI 欄位，推入 Write Queue |
+| Thread 1 | `syslog-collector` | 監聽 UDP 514，解析 RFC 3164 與 RFC 5424 PRI/欄位，推入 Write Queue |
 | Thread 2 | `snmptrap-collector` | 監聽 UDP 162，透過 pysnmp 接收 Trap，MIB 解析後推入 Write Queue |
 | Thread 3 | `web-server` | Werkzeug HTTP Server，處理 Web UI、REST API、Webhook、SSE |
 | Thread 4 | `db-writer` | 從 Write Queue 取出事件，批次 INSERT 到 SQLite，成功後觸發 SSE 廣播 |
@@ -108,7 +108,7 @@ simple-nms/
 │
 ├── collectors/
 │   ├── __init__.py
-│   ├── syslog_listener.py       # Syslog UDP 收聽 + RFC 3164 PRI 解析
+│   ├── syslog_listener.py       # Syslog UDP 收聽 + RFC 3164/5424 解析
 │   ├── snmp_listener.py         # SNMP Trap 收聽 + MIB 解析 + Source IP 擷取
 │
 ├── static/
@@ -311,9 +311,13 @@ curl -X POST http://localhost/webhook \
 - **事件類型**：勾選框過濾 Syslog / SNMP Trap / Webhook
 - **來源 IP**：文字輸入框，支援前綴匹配（如輸入 `10.0.0` 可匹配所有 10.0.0.x）
 
-#### 主題切換
-
 右上角 ☀/☽ 按鈕切換亮色/暗色主題，偏好自動記憶。
+
+#### 視圖切換 (頁籤)
+
+在事件總覽和數據分析頁籤之間切換：
+- **Live Feed (即時事件)**：顯示過濾後的即時事件列表。
+- **Analytics (數據分析)**：以 Chart.js 渲染視覺化圖表，包含：事件趨勢時間軸、事件類型佔比、嚴重程度分佈與 Top 10 來源 IP，圖表會隨側邊欄過濾條件即時連動。
 
 ### REST API
 
@@ -341,6 +345,13 @@ curl "http://localhost/api/events?page=2&per_page=20"
 ```bash
 curl "http://localhost/api/kpi"
 # 回傳：{"total": 1685, "syslog": 1284, "snmptrap": 312, "webhook": 89}
+```
+
+#### 統計數據分析
+
+```bash
+curl "http://localhost/api/analytics"
+# 回傳包含 types、severities、top_ips、timeline 與 timeline_scale 的聚合 JSON 數據
 ```
 
 #### SSE 即時串流

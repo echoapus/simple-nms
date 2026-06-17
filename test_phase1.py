@@ -53,6 +53,17 @@ def test_syslog_parser():
     check("No PRI -> severity=None", e4["severity"] is None)
     check("No PRI -> full message as payload", e4["payload"] == "no PRI field here")
 
+    # RFC 5424 Syslog test case
+    msg_5424 = b'<165>1 2003-10-11T22:14:15.003Z mymachine.example.com evtsys 1234 ID47 [exampleSDID@32473 iut="3" eventSource="Application" eventID="1011"] An application event log entry...'
+    e5 = _parse_syslog(msg_5424, ("10.0.0.5", 514))
+    check("RFC 5424: facility parsed", e5["facility"] == "local4")
+    check("RFC 5424: severity parsed", e5["severity"] == "notice")
+    check("RFC 5424: ts parsed from header", e5["ts"].startswith("2003-10-11T22:14:15"))
+    check("RFC 5424: tags populated", e5["tags"] == "app:evtsys,msgid:ID47,host:mymachine.example.com")
+    check("RFC 5424: varbinds parsed JSON", '"exampleSDID@32473"' in e5["varbinds"] and '"iut": "3"' in e5["varbinds"])
+    check("RFC 5424: payload parsed with prefix", e5["payload"] == "evtsys[1234]: ID47: An application event log entry...")
+
+
 
 def test_webhook():
     print("\n=== Webhook Collector ===")

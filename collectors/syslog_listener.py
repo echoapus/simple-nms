@@ -1,5 +1,6 @@
-"""Syslog collector — listens on UDP and parses RFC 3164 messages."""
+"""Syslog collector — listens on UDP and parses RFC 3164 and RFC 5424 messages."""
 
+import json
 import logging
 import queue
 import re
@@ -13,6 +14,19 @@ logger = logging.getLogger(__name__)
 
 # RFC 3164 PRI field: <priority>
 _PRI_RE = re.compile(r"^<(\d{1,3})>(.*)$", re.DOTALL)
+
+# RFC 5424 format pattern
+_RFC5424_RE = re.compile(
+    r"^(\d+)\s+"                 # VERSION (Group 1)
+    r"(\S+)\s+"                  # TIMESTAMP (Group 2)
+    r"(\S+)\s+"                  # HOSTNAME (Group 3)
+    r"(\S+)\s+"                  # APP-NAME (Group 4)
+    r"(\S+)\s+"                  # PROCID (Group 5)
+    r"(\S+)\s+"                  # MSGID (Group 6)
+    r"((?:\[.+?\])+|-)"          # STRUCTURED-DATA (Group 7)
+    r"(?:\s+(.*))?$",            # MSG (Group 8)
+    re.DOTALL
+)
 
 FACILITY_NAMES = [
     "kern", "user", "mail", "daemon", "auth", "syslog", "lpr", "news",
@@ -34,6 +48,26 @@ def _parse_pri(pri_val: int):
     return facility, severity
 
 
+def _parse_structured_data(sd_str: str) -> dict:
+    """Parse RFC 5424 structured data string into a dictionary."""
+    if sd_str == "-":
+        return {}
+    elements = re.findall(r"\[([^\]]+)\]", sd_str)
+    result = {}
+    for elem in elements:
+        parts = elem.split(None, 1)
+        if not parts:
+            continue
+        sdid = parts[0]
+        params = {}
+        if len(parts) > 1:
+            kv_pairs = re.findall(r'(\S+?)="([^"]*?)"', parts[1])
+            for k, v in kv_pairs:
+                params[k] = v
+        result[sdid] = params
+    return result
+
+
 def _parse_syslog(data: bytes, addr: tuple) -> dict:
     """Parse raw syslog datagram into an event dict."""
     text = data.decode("utf-8", errors="replace").rstrip("\n")
@@ -42,6 +76,9 @@ def _parse_syslog(data: bytes, addr: tuple) -> dict:
     facility = None
     severity = None
     message = text
+    varbinds = None
+    tags = None
+    event_ts = now
 
     m = _PRI_RE.match(text)
     if m:
@@ -49,16 +86,76 @@ def _parse_syslog(data: bytes, addr: tuple) -> dict:
         facility, severity = _parse_pri(pri)
         message = m.group(2).strip()
 
+        # Check if the remaining message is in RFC 5424 format
+        m5424 = _RFC5424_RE.match(message)
+        if m5424:
+            version = m5424.group(1)
+            ts_str = m5424.group(2)
+            hostname = m5424.group(3)
+            app_name = m5424.group(4)
+            procid = m5424.group(5)
+            msgid = m5424.group(6)
+            sd_str = m5424.group(7)
+            msg = m5424.group(8)
+
+            # Try parsing timestamp
+            if ts_str and ts_str != "-":
+                try:
+                    # ISO 8601 formatting replacement (e.g. trailing 'Z' to '+00:00')
+                    cutoff = ts_str
+                    if cutoff.endswith("Z"):
+                        cutoff = cutoff[:-1] + "+00:00"
+                    parsed_dt = datetime.fromisoformat(cutoff)
+                    event_ts = parsed_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
+                except ValueError:
+                    pass
+
+            # Structured Data -> varbinds
+            sd_dict = _parse_structured_data(sd_str)
+            if sd_dict:
+                varbinds = json.dumps(sd_dict, ensure_ascii=False)
+
+            # Headers -> tags
+            tag_list = []
+            if app_name and app_name != "-":
+                tag_list.append(f"app:{app_name}")
+            if msgid and msgid != "-":
+                tag_list.append(f"msgid:{msgid}")
+            if hostname and hostname != "-":
+                tag_list.append(f"host:{hostname}")
+            if tag_list:
+                tags = ",".join(tag_list)
+
+            # Format payload with header details
+            prefix_parts = []
+            if app_name and app_name != "-":
+                if procid and procid != "-":
+                    prefix_parts.append(f"{app_name}[{procid}]")
+                else:
+                    prefix_parts.append(app_name)
+            if msgid and msgid != "-":
+                prefix_parts.append(msgid)
+
+            prefix = ": ".join(prefix_parts)
+
+            if msg:
+                message = f"{prefix}: {msg}" if prefix else msg
+            else:
+                if sd_dict:
+                    message = f"{prefix}: [Structured Data] {sd_str}" if prefix else f"[Structured Data] {sd_str}"
+                else:
+                    message = f"{prefix} (no message)" if prefix else "(no message)"
+
     return {
-        "ts": now,
+        "ts": event_ts,
         "src_ip": addr[0],
         "type": "syslog",
         "facility": facility,
         "severity": severity,
         "oid": None,
-        "varbinds": None,
+        "varbinds": varbinds,
         "payload": message,
-        "tags": None,
+        "tags": tags,
     }
 
 

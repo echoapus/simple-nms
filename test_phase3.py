@@ -114,6 +114,17 @@ def test_html_structure():
     check("Sortable th: severity", 'data-sort="severity"' in html)
     check("Pagination container", 'id="pagination"' in html)
 
+    # Tabs and Analytics Charts
+    check("Tabs container element", 'class="tabs-container"' in html)
+    check("Tab Feed button", 'id="tabFeed"' in html)
+    check("Tab Analytics button", 'id="tabAnalytics"' in html)
+    check("View Feed panel", 'id="viewFeed"' in html)
+    check("View Analytics panel", 'id="viewAnalytics"' in html)
+    check("Timeline chart canvas", 'id="chartTimeline"' in html)
+    check("Types chart canvas", 'id="chartTypes"' in html)
+    check("Severities chart canvas", 'id="chartSeverities"' in html)
+    check("Sources chart canvas", 'id="chartSources"' in html)
+
     # Responsive
     check("Sidebar overlay", 'id="sidebarOverlay"' in html)
 

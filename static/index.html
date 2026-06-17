@@ -971,7 +971,82 @@ tbody td {
   transform: translateY(0);
   opacity: 1;
 }
+
+/* --- Tabs navigation --- */
+.tabs-container {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-primary);
+  padding-bottom: 8px;
+}
+.tab-btn {
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px 16px;
+  border-radius: var(--radius);
+  transition: all var(--transition);
+}
+.tab-btn:hover {
+  color: var(--accent);
+}
+.tab-btn.active {
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+.tab-content {
+  display: none;
+}
+.tab-content.active {
+  display: block;
+}
+
+/* --- Analytics dashboard --- */
+.analytics-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.analytics-row {
+  width: 100%;
+}
+.analytics-row-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.analytics-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.analytics-card h4 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.chart-container {
+  position: relative;
+  width: 100%;
+  height: 220px;
+}
+.timeline-card .chart-container {
+  height: 260px;
+}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="dark">
 <div class="app">
@@ -1083,29 +1158,72 @@ tbody td {
         </div>
       </div>
 
-      <!-- Event Table -->
-      <div class="table-container">
-        <div class="table-toolbar">
-          <div class="table-info">
-            Showing <strong id="showingCount">0</strong> of <strong id="totalCount">0</strong> events
+      <!-- View Tabs -->
+      <div class="tabs-container">
+        <button class="tab-btn active" id="tabFeed" onclick="NMS.switchTab('feed')">Live Feed</button>
+        <button class="tab-btn" id="tabAnalytics" onclick="NMS.switchTab('analytics')">Analytics</button>
+      </div>
+
+      <!-- Tab Content: Live Feed -->
+      <div id="viewFeed" class="tab-content active">
+        <!-- Event Table -->
+        <div class="table-container">
+          <div class="table-toolbar">
+            <div class="table-info">
+              Showing <strong id="showingCount">0</strong> of <strong id="totalCount">0</strong> events
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th data-sort="ts" class="sorted">Time <span class="sort-arrow">&#9660;</span></th>
+                  <th data-sort="src_ip">Source IP <span class="sort-arrow"></span></th>
+                  <th data-sort="type">Type <span class="sort-arrow"></span></th>
+                  <th data-sort="severity">Severity <span class="sort-arrow"></span></th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody id="eventsBody">
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" id="pagination"></div>
+        </div>
+      </div>
+
+      <!-- Tab Content: Analytics -->
+      <div id="viewAnalytics" class="tab-content">
+        <div class="analytics-dashboard">
+          <div class="analytics-row">
+            <div class="analytics-card timeline-card">
+              <h4>Event Volume Timeline</h4>
+              <div class="chart-container">
+                <canvas id="chartTimeline"></canvas>
+              </div>
+            </div>
+          </div>
+          <div class="analytics-row-grid">
+            <div class="analytics-card">
+              <h4>Event Types</h4>
+              <div class="chart-container">
+                <canvas id="chartTypes"></canvas>
+              </div>
+            </div>
+            <div class="analytics-card">
+              <h4>Severity Levels</h4>
+              <div class="chart-container">
+                <canvas id="chartSeverities"></canvas>
+              </div>
+            </div>
+            <div class="analytics-card">
+              <h4>Top Sources</h4>
+              <div class="chart-container">
+                <canvas id="chartSources"></canvas>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th data-sort="ts" class="sorted">Time <span class="sort-arrow">&#9660;</span></th>
-                <th data-sort="src_ip">Source IP <span class="sort-arrow"></span></th>
-                <th data-sort="type">Type <span class="sort-arrow"></span></th>
-                <th data-sort="severity">Severity <span class="sort-arrow"></span></th>
-                <th>Message</th>
-              </tr>
-            </thead>
-            <tbody id="eventsBody">
-            </tbody>
-          </table>
-        </div>
-        <div class="pagination" id="pagination"></div>
       </div>
     </main>
   </div>
@@ -1175,7 +1293,14 @@ tbody td {
     totalPages: 1,
     sseConnected: false,
     loading: false,
+    currentTab: 'feed',
   };
+
+  // --- Chart instances ---
+  let chartTimelineInstance = null;
+  let chartTypesInstance = null;
+  let chartSeveritiesInstance = null;
+  let chartSourcesInstance = null;
 
   // ── DOM refs ──
   const $ = (sel) => document.querySelector(sel);
@@ -1657,8 +1782,258 @@ tbody td {
 
   // ── Refresh all ──
   function refresh() {
-    fetchEvents();
     fetchKpi();
+    if (state.currentTab === 'feed') {
+      fetchEvents();
+    } else {
+      fetchAnalytics();
+    }
+  }
+
+  // ── Analytics API & Rendering ──
+  async function fetchAnalytics() {
+    setLoading(true);
+    try {
+      const resp = await fetch(`/api/analytics?${buildQueryParams()}`);
+      const data = await resp.json();
+      renderCharts(data);
+    } catch (err) {
+      console.error('Failed to fetch analytics:', err);
+    }
+    setLoading(false);
+  }
+
+  function getThemeColors() {
+    const style = getComputedStyle(document.body);
+    const isDark = dom.body.classList.contains('dark');
+    return {
+      text: isDark ? '#e2e8f0' : '#1e293b',
+      textMuted: isDark ? '#64748b' : '#94a3b8',
+      border: isDark ? '#2d3548' : '#cbd5e1',
+      accent: isDark ? '#60a5fa' : '#3b82f6',
+      syslog: '#3b82f6',
+      snmptrap: '#f59e0b',
+      webhook: '#10b981',
+      total: '#6366f1',
+    };
+  }
+
+  function formatTimelineLabel(timeStr, scale) {
+    if (!timeStr) return '';
+    try {
+      const normalized = timeStr.replace(' ', 'T');
+      const d = new Date(normalized);
+      if (scale === 'day') {
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      } else {
+        return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+    } catch (_) {
+      return timeStr;
+    }
+  }
+
+  function renderCharts(data) {
+    const colors = getThemeColors();
+
+    // 1. Timeline Chart (Line)
+    const ctxTimeline = document.getElementById('chartTimeline').getContext('2d');
+    if (chartTimelineInstance) chartTimelineInstance.destroy();
+    
+    const timelineLabels = data.timeline.map(x => formatTimelineLabel(x.time, data.timeline_scale));
+    const timelineValues = data.timeline.map(x => x.count);
+
+    chartTimelineInstance = new Chart(ctxTimeline, {
+      type: 'line',
+      data: {
+        labels: timelineLabels,
+        datasets: [{
+          label: 'Events Count',
+          data: timelineValues,
+          borderColor: colors.accent,
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          fill: true,
+          tension: 0.3,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            mode: 'index',
+            intersect: false
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: colors.border },
+            ticks: { color: colors.textMuted }
+          },
+          y: {
+            grid: { color: colors.border },
+            ticks: { color: colors.textMuted, stepSize: 1 },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
+    // 2. Event Types Chart (Doughnut)
+    const ctxTypes = document.getElementById('chartTypes').getContext('2d');
+    if (chartTypesInstance) chartTypesInstance.destroy();
+
+    const typeLabels = ['Syslog', 'SNMP Trap', 'Webhook'];
+    const typeValues = [data.types.syslog || 0, data.types.snmptrap || 0, data.types.webhook || 0];
+
+    chartTypesInstance = new Chart(ctxTypes, {
+      type: 'doughnut',
+      data: {
+        labels: typeLabels,
+        datasets: [{
+          data: typeValues,
+          backgroundColor: [colors.syslog, colors.snmptrap, colors.webhook],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { color: colors.text }
+          }
+        }
+      }
+    });
+
+    // 3. Severities Chart (Bar)
+    const ctxSeverities = document.getElementById('chartSeverities').getContext('2d');
+    if (chartSeveritiesInstance) chartSeveritiesInstance.destroy();
+
+    const sevMap = {
+      'emerg': 'Emergency',
+      'alert': 'Alert',
+      'crit': 'Critical',
+      'err': 'Error',
+      'warning': 'Warning',
+      'notice': 'Notice',
+      'info': 'Info',
+      'debug': 'Debug',
+      'none': 'None / Webhook / Trap'
+    };
+
+    const sevColorMap = {
+      'emerg': '#991b1b',
+      'alert': '#dc2626',
+      'crit': '#ef4444',
+      'err': '#f97316',
+      'warning': '#eab308',
+      'notice': '#3b82f6',
+      'info': '#22c55e',
+      'debug': '#94a3b8',
+      'none': '#64748b'
+    };
+
+    const sevLabels = [];
+    const sevValues = [];
+    const sevColors = [];
+
+    for (const [key, label] of Object.entries(sevMap)) {
+      if (data.severities[key] !== undefined) {
+        sevLabels.push(label);
+        sevValues.push(data.severities[key]);
+        sevColors.push(sevColorMap[key]);
+      }
+    }
+
+    chartSeveritiesInstance = new Chart(ctxSeverities, {
+      type: 'bar',
+      data: {
+        labels: sevLabels,
+        datasets: [{
+          data: sevValues,
+          backgroundColor: sevColors,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            grid: { color: colors.border },
+            ticks: { color: colors.textMuted, stepSize: 1 },
+            beginAtZero: true
+          },
+          y: {
+            grid: { display: false },
+            ticks: { color: colors.text }
+          }
+        }
+      }
+    });
+
+    // 4. Top Sources Chart (Bar)
+    const ctxSources = document.getElementById('chartSources').getContext('2d');
+    if (chartSourcesInstance) chartSourcesInstance.destroy();
+
+    const sourceLabels = data.top_ips.map(x => x.ip);
+    const sourceValues = data.top_ips.map(x => x.count);
+
+    chartSourcesInstance = new Chart(ctxSources, {
+      type: 'bar',
+      data: {
+        labels: sourceLabels,
+        datasets: [{
+          data: sourceValues,
+          backgroundColor: colors.accent,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: colors.textMuted }
+          },
+          y: {
+            grid: { color: colors.border },
+            ticks: { color: colors.textMuted, stepSize: 1 },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  }
+
+  // ── Switch View Tabs ──
+  function switchTab(tab) {
+    state.currentTab = tab;
+    $$('.tab-btn').forEach(b => b.classList.remove('active'));
+    $$('.tab-content').forEach(c => c.classList.remove('active'));
+
+    if (tab === 'feed') {
+      $('#tabFeed').classList.add('active');
+      $('#viewFeed').classList.add('active');
+      fetchEvents();
+    } else if (tab === 'analytics') {
+      $('#tabAnalytics').classList.add('active');
+      $('#viewAnalytics').classList.add('active');
+      fetchAnalytics();
+    }
   }
 
   // ── Event listeners ──
@@ -1667,7 +2042,7 @@ tbody td {
     dom.globalSearch.addEventListener('input', debounce(() => {
       state.q = dom.globalSearch.value.trim();
       state.page = 1;
-      fetchEvents();
+      refresh();
     }, 300));
 
     // Theme
@@ -1705,7 +2080,7 @@ tbody td {
         state.types = [...$$('#typeFilters input[type="checkbox"]:checked')].map(c => c.value);
         if (state.types.length === 0) state.types = ['syslog', 'snmptrap', 'webhook'];
         state.page = 1;
-        fetchEvents();
+        refresh();
       });
     });
 
@@ -1713,7 +2088,7 @@ tbody td {
     dom.srcIpFilter.addEventListener('input', debounce(() => {
       state.srcIp = dom.srcIpFilter.value.trim();
       state.page = 1;
-      fetchEvents();
+      refresh();
     }, 300));
 
     // Sort headers
@@ -1761,6 +2136,9 @@ tbody td {
     },
     showDetail(idx) {
       showDetailModal(idx);
+    },
+    switchTab(tab) {
+      switchTab(tab);
     }
   };
 

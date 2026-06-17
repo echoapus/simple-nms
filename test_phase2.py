@@ -378,6 +378,31 @@ def test_webhook_to_api():
     check("KPI webhook=5", d["webhook"] == 5)
     check("KPI total=5", d["total"] == 5)
 
+def test_api_analytics():
+    print("\n=== GET /api/analytics ===")
+    _, w, _, c = seed_db()
+
+    r = c.get("/api/analytics")
+    check("HTTP 200", r.status_code == 200)
+    d = r.get_json()
+    check("has types key", "types" in d)
+    check("has severities key", "severities" in d)
+    check("has top_ips key", "top_ips" in d)
+    check("has timeline key", "timeline" in d)
+    check("has timeline_scale key", "timeline_scale" in d)
+
+    # Check content values
+    check("types syslog count is 3", d["types"]["syslog"] == 3)
+    check("types snmptrap count is 2", d["types"]["snmptrap"] == 2)
+    check("types webhook count is 2", d["types"]["webhook"] == 2)
+    check("top_ips has 127.0.0.1", any(item["ip"] == "127.0.0.1" for item in d["top_ips"]))
+
+    # Test with type filter
+    r2 = c.get("/api/analytics?type=syslog")
+    d2 = r2.get_json()
+    check("filtered types syslog is 3", d2["types"]["syslog"] == 3)
+    check("filtered types webhook is 0", d2["types"]["webhook"] == 0)
+
     w.stop(); w.join(timeout=2)
 
 
@@ -397,6 +422,7 @@ if __name__ == "__main__":
     test_api_status()
     test_sse_db_integration()
     test_webhook_to_api()
+    test_api_analytics()
 
     print("\n" + "=" * 60)
     print(f"Results:  {PASS} passed,  {FAIL} failed")
