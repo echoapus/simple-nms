@@ -240,6 +240,8 @@ curl -X POST http://localhost/webhook \
 
 Response: `202 Accepted` with `{"status": "ok"}`
 
+When Simple NMS is behind a local reverse proxy such as HAProxy, webhook `src_ip` is taken from the first valid IP in `X-Forwarded-For`, falling back to `X-Real-IP` and then the socket peer IP. Forwarded IP headers are trusted only when the immediate peer is loopback. Direct clients can still post to `/webhook`, but their forged forwarding headers are ignored.
+
 ### GET /health
 
 Health check endpoint.
@@ -317,3 +319,13 @@ set snmp trap-group nms-traps version v2
 ### Webhook Integration
 
 Any system that supports outgoing webhooks can POST JSON to `http://your-server/webhook`. Compatible with Grafana, Prometheus Alertmanager, Zabbix, and custom scripts.
+
+For local HAProxy deployments, enable forwarding headers:
+
+```haproxy
+backend simple_nms
+    mode http
+    option forwardfor
+    http-request set-header X-Forwarded-Proto http
+    server simple_nms_1 127.0.0.1:5000 check
+```

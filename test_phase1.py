@@ -80,6 +80,29 @@ def test_webhook():
     check("type=webhook", evt["type"] == "webhook")
     check("severity from body", evt["severity"] == "info")
     check("payload has JSON", "deploy" in evt["payload"])
+    check("direct client IP", evt["src_ip"] == "127.0.0.1")
+
+    r = c.post("/webhook",
+               data=json.dumps({"event": "proxy"}),
+               headers={
+                   "Content-Type": "application/json",
+                   "X-Forwarded-For": "203.0.113.10, 127.0.0.1",
+               },
+               environ_overrides={"REMOTE_ADDR": "127.0.0.1"})
+    check("Trusted proxy webhook -> 202", r.status_code == 202)
+    evt = wq.get()
+    check("trusted proxy client IP", evt["src_ip"] == "203.0.113.10")
+
+    r = c.post("/webhook",
+               data=json.dumps({"event": "spoof"}),
+               headers={
+                   "Content-Type": "application/json",
+                   "X-Forwarded-For": "203.0.113.20",
+               },
+               environ_overrides={"REMOTE_ADDR": "198.51.100.30"})
+    check("Direct spoofed forwarded header -> 202", r.status_code == 202)
+    evt = wq.get()
+    check("untrusted peer ignores forwarded header", evt["src_ip"] == "198.51.100.30")
 
     r = c.post("/webhook", data=b"not json",
                headers={"Content-Type": "application/json"})

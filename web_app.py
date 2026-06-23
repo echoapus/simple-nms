@@ -10,6 +10,7 @@ GET  /api/sse          — Server-Sent Events stream for real-time updates
 """
 
 import json
+import ipaddress
 import logging
 import queue
 import sqlite3
@@ -24,6 +25,43 @@ from flask import Flask, Response, request, jsonify, g, send_from_directory
 from metrics import runtime_metrics
 
 logger = logging.getLogger(__name__)
+
+
+def _valid_ip(value: str | None) -> str | None:
+    if not value:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    try:
+        ipaddress.ip_address(candidate)
+    except ValueError:
+        return None
+    return candidate
+
+
+def _is_trusted_proxy(peer_ip: str | None) -> bool:
+    parsed = _valid_ip(peer_ip)
+    if parsed is None:
+        return False
+    addr = ipaddress.ip_address(parsed)
+    return addr.is_loopback
+
+
+def get_client_ip() -> str | None:
+    """Return the real client IP when behind a trusted local proxy."""
+    peer_ip = request.remote_addr
+    if not _is_trusted_proxy(peer_ip):
+        return peer_ip
+
+    forwarded_for = request.headers.get("X-Forwarded-For", "")
+    for forwarded_ip in forwarded_for.split(","):
+        parsed = _valid_ip(forwarded_ip)
+        if parsed:
+            return parsed
+
+    real_ip = _valid_ip(request.headers.get("X-Real-IP"))
+    return real_ip or peer_ip
 
 # ---------------------------------------------------------------------------
 # SSE Hub — pub/sub for real-time push
@@ -128,7 +166,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
         evt = {
             "ts": now,
-            "src_ip": request.remote_addr,
+            "src_ip": get_client_ip(),
             "type": "webhook",
             "facility": body.get("facility"),
             "severity": body.get("severity"),

@@ -21,6 +21,7 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
   - Server-Sent Events (SSE) for live updates
 - **Single Python process** — no external web server, message broker, or database server required
 - **Reliability** — write failures trigger exponential back-off retry with JSONL file fallback
+- **Reverse-proxy aware webhooks** — direct clients use the socket peer IP; requests forwarded by a local proxy can use `X-Forwarded-For` / `X-Real-IP` for the original client IP
 
 ## Quick Start
 
@@ -36,6 +37,28 @@ sudo python3 main.py /path/to/config.json
 ```
 
 Open `http://your-server` in a browser.
+
+## Reverse Proxy / HAProxy
+
+Simple NMS can run directly or behind a local reverse proxy such as HAProxy.
+When HAProxy runs on the same host, configure it to forward requests to the Simple NMS web port and add `X-Forwarded-For`:
+
+```haproxy
+frontend http_in
+    bind *:80
+    mode http
+    default_backend simple_nms
+
+backend simple_nms
+    mode http
+    option forwardfor
+    http-request set-header X-Forwarded-Proto http
+    server simple_nms_1 127.0.0.1:5000 check
+```
+
+With this setup, set `webhook.host` to `127.0.0.1` and `webhook.port` to `5000`.
+Webhook events posted to `/webhook` will record the first valid IP from `X-Forwarded-For`.
+Forwarded client IP headers are trusted only when the immediate peer is loopback, so direct clients cannot spoof `src_ip` by sending their own forwarding headers.
 
 ## Architecture
 

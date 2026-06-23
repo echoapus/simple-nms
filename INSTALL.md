@@ -76,6 +76,16 @@ Edit `/opt/simple-nms/config.json`:
 }
 ```
 
+If Simple NMS is behind HAProxy on the same host, bind the web server to loopback and use a non-public backend port:
+
+```json
+    "webhook": {
+        "enabled": true,
+        "host": "127.0.0.1",
+        "port": 5000
+    }
+```
+
 ### 5. Create data directory
 
 ```bash
@@ -138,6 +148,25 @@ For production, restrict UDP ports to your internal network:
 sudo ufw allow from 10.0.0.0/8 to any port 514 proto udp
 sudo ufw allow from 10.0.0.0/8 to any port 162 proto udp
 ```
+
+### 10. Local HAProxy reverse proxy (optional)
+
+When HAProxy runs on the same host, expose HAProxy on port 80/443 and forward to the loopback Simple NMS backend:
+
+```haproxy
+frontend http_in
+    bind *:80
+    mode http
+    default_backend simple_nms
+
+backend simple_nms
+    mode http
+    option forwardfor
+    http-request set-header X-Forwarded-Proto http
+    server simple_nms_1 127.0.0.1:5000 check
+```
+
+Simple NMS trusts `X-Forwarded-For` and `X-Real-IP` only when the immediate peer is loopback. This supports local HAProxy while preventing direct clients from spoofing webhook `src_ip`.
 
 ---
 

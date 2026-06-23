@@ -214,6 +214,33 @@ cd simple-nms
 | `snmptrap.mib_modules` | 啟動時要載入的 MIB 模組名稱 |
 | `webhook.port` | Web Server 監聽的 HTTP port |
 
+如果 Simple NMS 放在同一台主機的 HAProxy 後面，建議讓 Web Server 只監聽 loopback：
+
+```json
+"webhook": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 5000
+}
+```
+
+HAProxy 需送出 forwarding header：
+
+```haproxy
+frontend http_in
+    bind *:80
+    mode http
+    default_backend simple_nms
+
+backend simple_nms
+    mode http
+    option forwardfor
+    http-request set-header X-Forwarded-Proto http
+    server simple_nms_1 127.0.0.1:5000 check
+```
+
+Webhook 的 `src_ip` 在本機 HAProxy 轉送時會使用 `X-Forwarded-For` 的第一個有效 IP；若沒有 proxy，則使用直接連線的來源 IP。Simple NMS 只在 immediate peer 是 loopback 時信任 `X-Forwarded-For` / `X-Real-IP`，避免外部直接連線偽造來源 IP。
+
 ### 第五步：手動測試啟動
 
 ```bash
@@ -483,14 +510,16 @@ set snmp trap-group nms-traps version v2
 
 任何支援 outgoing webhook 的系統都可以 POST JSON 到 `http://your-server/webhook`，例如 Grafana Alertmanager、Zabbix、自訂腳本等。
 
+若透過本機 HAProxy 對外服務，請在 backend 啟用 `option forwardfor`，Simple NMS 會在安全條件下記錄原始 client IP。
+
 ---
 
 ## 測試
 
-專案包含 182 項自動化測試，涵蓋四個階段：
+專案包含 193 項自動化測試，涵蓋四個階段：
 
 ```bash
-python3 test_phase1.py    # 32 項：Syslog 解析、Webhook 驗證、DB Writer、效能基準
+python3 test_phase1.py    # 43 項：Syslog 解析、Webhook 驗證、DB Writer、效能基準
 python3 test_phase2.py    # 45 項：REST API 過濾/分頁/排序、SSE Hub、端對端整合
 python3 test_phase3.py    # 57 項：Web UI HTML 結構、CSS 功能、JS 邏輯
 python3 test_phase4.py    # 依目前測試更新：重試機制、清除腳本、部署檔案、文件完整性
