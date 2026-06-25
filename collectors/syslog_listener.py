@@ -89,7 +89,6 @@ def _parse_syslog(data: bytes, addr: tuple) -> dict:
         # Check if the remaining message is in RFC 5424 format
         m5424 = _RFC5424_RE.match(message)
         if m5424:
-            version = m5424.group(1)
             ts_str = m5424.group(2)
             hostname = m5424.group(3)
             app_name = m5424.group(4)
@@ -179,13 +178,12 @@ class SyslogCollector(threading.Thread):
         while True:
             try:
                 data, addr = self._sock.recvfrom(65535)
-                if data:
-                    evt = _parse_syslog(data, addr)
-                    try:
-                        self.q.put_nowait(evt)
-                    except queue.Full:
-                        runtime_metrics.inc_dropped("syslog")
-                        logger.warning("Syslog event from %s dropped because write queue is full", addr[0])
+                evt = _parse_syslog(data, addr)
+                try:
+                    self.q.put_nowait(evt)
+                except queue.Full:
+                    runtime_metrics.inc_dropped("syslog")
+                    logger.warning("Syslog event from %s dropped because write queue is full", addr[0])
             except socket.timeout:
                 continue
             except OSError:

@@ -14,13 +14,6 @@ services:
       - ./config.json:/app/config.json:ro
     environment:
       - PYTHONUNBUFFERED=1
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:80/health', timeout=3)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
 
 volumes:
   nms-data:
-    driver: local

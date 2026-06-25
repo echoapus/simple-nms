@@ -7,27 +7,13 @@ Usage:  python3 test_phase3.py
 import json
 import os
 import queue
-import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 from database import init_db, DBWriter
-from web_app import create_app, sse_hub
+from test_support import check, run_suite
+from web_app import create_app
 
-PASS = 0
-FAIL = 0
 DB = "/tmp/snms_test_p3.db"
-
-
-def check(name, condition, detail=""):
-    global PASS, FAIL
-    if condition:
-        PASS += 1
-        print(f"  [PASS] {name}")
-    else:
-        FAIL += 1
-        print(f"  [FAIL] {name}  -- {detail}")
 
 
 def setup():
@@ -226,17 +212,10 @@ def test_api_cors():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Simple NMS -- Phase 3 Validation Suite")
-    print("=" * 60)
-
-    test_static_serving()
-    test_html_structure()
-    test_css_features()
-    test_js_features()
-    test_api_cors()
-
-    print("\n" + "=" * 60)
-    print(f"Results:  {PASS} passed,  {FAIL} failed")
-    print("=" * 60)
-    sys.exit(1 if FAIL else 0)
+    raise SystemExit(run_suite("Simple NMS -- Phase 3 Validation Suite", [
+        test_static_serving,
+        test_html_structure,
+        test_css_features,
+        test_js_features,
+        test_api_cors,
+    ]))

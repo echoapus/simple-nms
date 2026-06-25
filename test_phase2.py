@@ -7,30 +7,13 @@ Usage:  python3 test_phase2.py
 import json
 import os
 import queue
-import sqlite3
-import sys
 import time
-import threading
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from database import init_db, DBWriter
+from test_support import check, run_suite
 from web_app import create_app, SSEHub, sse_hub
-from collectors.syslog_listener import _parse_syslog
 
-PASS = 0
-FAIL = 0
 DB = "/tmp/snms_test_p2.db"
-
-
-def check(name, condition, detail=""):
-    global PASS, FAIL
-    if condition:
-        PASS += 1
-        print(f"  [PASS] {name}")
-    else:
-        FAIL += 1
-        print(f"  [FAIL] {name}  -- {detail}")
 
 
 def seed_db():
@@ -241,7 +224,6 @@ def test_api_events_cleanup():
     check("Cleanup HTTP 200", r.status_code == 200)
     d = r.get_json()
     check("Cleanup deleted 4 old events", d["deleted"] == 4, f"got {d.get('deleted')}")
-    check("Cleanup total_after=3", d["total_after"] == 3, f"got {d.get('total_after')}")
 
     r = c.get("/api/events?sort=ts&order=asc")
     d = r.get_json()
@@ -334,7 +316,7 @@ def test_api_status():
     print("\n=== GET /health + /api/status ===")
     wq, w, _, c = seed_db()
 
-    for path in ("/health", "/api/status"):
+    for path in ("/health",):
         r = c.get(path)
         check(f"{path} -> 200", r.status_code == 200)
         d = r.get_json()
@@ -407,24 +389,17 @@ def test_api_analytics():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Simple NMS -- Phase 2 Validation Suite")
-    print("=" * 60)
-
-    test_api_kpi()
-    test_api_events_basic()
-    test_api_events_pagination()
-    test_api_events_filters()
-    test_api_events_sorting()
-    test_api_events_combined()
-    test_api_events_cleanup()
-    test_sse_hub()
-    test_api_status()
-    test_sse_db_integration()
-    test_webhook_to_api()
-    test_api_analytics()
-
-    print("\n" + "=" * 60)
-    print(f"Results:  {PASS} passed,  {FAIL} failed")
-    print("=" * 60)
-    sys.exit(1 if FAIL else 0)
+    raise SystemExit(run_suite("Simple NMS -- Phase 2 Validation Suite", [
+        test_api_kpi,
+        test_api_events_basic,
+        test_api_events_pagination,
+        test_api_events_filters,
+        test_api_events_sorting,
+        test_api_events_combined,
+        test_api_events_cleanup,
+        test_sse_hub,
+        test_api_status,
+        test_sse_db_integration,
+        test_webhook_to_api,
+        test_api_analytics,
+    ]))

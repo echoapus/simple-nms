@@ -8,7 +8,6 @@ the unified web server (webhook + REST API + SSE).
 
 import json
 import logging
-import os
 import queue
 import signal
 import sys
@@ -38,26 +37,6 @@ def load_config(path: str = "config.json") -> dict:
     return cfg
 
 
-class WebServerThread(threading.Thread):
-    """Runs the unified Flask web server in a daemon thread."""
-
-    def __init__(self, app, host: str, port: int):
-        super().__init__(daemon=True, name="web-server")
-        self.app = app
-        self.host = host
-        self.port = port
-        self._server = None
-
-    def run(self) -> None:
-        from werkzeug.serving import make_server
-        self._server = make_server(self.host, self.port, self.app, threaded=True)
-        logger.info("Web server listening on %s:%d/http (webhook + API + SSE)",
-                     self.host, self.port)
-        self._server.serve_forever()
-
-    def stop(self) -> None:
-        if self._server:
-            self._server.shutdown()
 
 
 def main() -> None:
@@ -85,6 +64,7 @@ def main() -> None:
     db_writer.start()
 
     threads = []
+    _web_server = None
 
     # Syslog collector
     syslog_cfg = cfg.get("syslog", {})
@@ -105,7 +85,7 @@ def main() -> None:
             write_queue,
             host=snmp_cfg.get("host", "0.0.0.0"),
             port=snmp_cfg.get("port", 162),
-            community=snmp_cfg.get("community", "public"),
+            community=snmp_cfg.get("community", "simplenms"),
             mib_dirs=snmp_cfg.get("mib_dirs"),
             mib_modules=snmp_cfg.get("mib_modules"),
         )
@@ -116,16 +96,17 @@ def main() -> None:
     # Unified web server (webhook + API + SSE)
     webhook_cfg = cfg.get("webhook", {})
     if webhook_cfg.get("enabled", False):
+        from werkzeug.serving import make_server
         app = create_app(
             db_path=db_path,
             write_queue=write_queue,
             db_writer=db_writer,
         )
-        ws = WebServerThread(
-            app,
-            host=webhook_cfg.get("host", "0.0.0.0"),
-            port=webhook_cfg.get("port", 5000),
-        )
+        host = webhook_cfg.get("host", "0.0.0.0")
+        port = webhook_cfg.get("port", 5000)
+        _web_server = make_server(host, port, app, threaded=True)
+        logger.info("Web server listening on %s:%d/http (webhook + API + SSE)", host, port)
+        ws = threading.Thread(target=_web_server.serve_forever, daemon=True, name="web-server")
         ws.start()
         threads.append(ws)
 
@@ -140,6 +121,8 @@ def main() -> None:
         if not shutdown:
             shutdown = True
             logger.info("Shutdown signal received — stopping...")
+            if _web_server:
+                _web_server.shutdown()
             for t in threads:
                 if hasattr(t, "stop"):
                     t.stop()

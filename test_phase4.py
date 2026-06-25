@@ -12,24 +12,11 @@ import subprocess
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 from database import init_db, DBWriter
+from test_support import check, run_suite
 
-PASS = 0
-FAIL = 0
 DB = "/tmp/snms_test_p4.db"
 PROJECT = os.path.dirname(os.path.abspath(__file__))
-
-
-def check(name, condition, detail=""):
-    global PASS, FAIL
-    if condition:
-        PASS += 1
-        print(f"  [PASS] {name}")
-    else:
-        FAIL += 1
-        print(f"  [FAIL] {name}  -- {detail}")
 
 
 def test_retry_mechanism():
@@ -222,19 +209,12 @@ def test_config_port80():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Simple NMS -- Phase 4 Validation Suite")
-    print("=" * 60)
-
-    test_retry_mechanism()
-    test_shutdown_drain()
-    test_fallback_file_method()
-    test_cleanup_script()
-    test_deployment_files()
-    test_documentation()
-    test_config_port80()
-
-    print("\n" + "=" * 60)
-    print(f"Results:  {PASS} passed,  {FAIL} failed")
-    print("=" * 60)
-    sys.exit(1 if FAIL else 0)
+    raise SystemExit(run_suite("Simple NMS -- Phase 4 Validation Suite", [
+        test_retry_mechanism,
+        test_shutdown_drain,
+        test_fallback_file_method,
+        test_cleanup_script,
+        test_deployment_files,
+        test_documentation,
+        test_config_port80,
+    ]))

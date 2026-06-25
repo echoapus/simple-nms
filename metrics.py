@@ -8,12 +8,7 @@ class RuntimeMetrics:
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._dropped = {
-            "syslog": 0,
-            "snmptrap": 0,
-            "webhook": 0,
-            "sse": 0,
-        }
+        self._dropped = dict.fromkeys(("syslog", "snmptrap", "webhook", "sse"), 0)
 
     def inc_dropped(self, event_type: str, count: int = 1) -> None:
         with self._lock:

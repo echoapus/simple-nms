@@ -9,28 +9,12 @@ import json
 import os
 import queue
 import sqlite3
-import sys
 import time
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from database import init_db, DBWriter
 from collectors.syslog_listener import _parse_syslog
+from test_support import check, run_suite
 from web_app import create_app
-
-PASS = 0
-FAIL = 0
-
-
-def check(name, condition, detail=""):
-    global PASS, FAIL
-    if condition:
-        PASS += 1
-        print(f"  [PASS] {name}")
-    else:
-        FAIL += 1
-        print(f"  [FAIL] {name}  -- {detail}")
-
 
 def test_syslog_parser():
     print("\n=== Syslog Parser ===")
@@ -135,6 +119,7 @@ def test_snmp_module():
     check("pysnmp importable", _PYSNMP_OK)
     tc = SNMPTrapCollector(queue.Queue(), host="127.0.0.1", port=1162)
     check("SNMPTrapCollector instantiated", tc is not None)
+    check("default community=simplenms", tc.community == "simplenms")
 
 
 def test_db_writer():
@@ -254,18 +239,11 @@ def test_end_to_end():
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Simple NMS -- Phase 1 Validation Suite")
-    print("=" * 60)
-
-    test_syslog_parser()
-    test_webhook()
-    test_snmp_module()
-    test_db_writer()
-    test_performance()
-    test_end_to_end()
-
-    print("\n" + "=" * 60)
-    print(f"Results:  {PASS} passed,  {FAIL} failed")
-    print("=" * 60)
-    sys.exit(1 if FAIL else 0)
+    raise SystemExit(run_suite("Simple NMS -- Phase 1 Validation Suite", [
+        test_syslog_parser,
+        test_webhook,
+        test_snmp_module,
+        test_db_writer,
+        test_performance,
+        test_end_to_end,
+    ]))

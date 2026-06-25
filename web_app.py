@@ -15,7 +15,6 @@ import logging
 import queue
 import sqlite3
 import threading
-import time
 from datetime import datetime, timezone
 
 import os
@@ -28,40 +27,71 @@ logger = logging.getLogger(__name__)
 
 
 def _valid_ip(value: str | None) -> str | None:
-    if not value:
-        return None
-    candidate = value.strip()
-    if not candidate:
-        return None
+    candidate = (value or "").strip()
     try:
         ipaddress.ip_address(candidate)
+        return candidate
     except ValueError:
         return None
-    return candidate
-
-
-def _is_trusted_proxy(peer_ip: str | None) -> bool:
-    parsed = _valid_ip(peer_ip)
-    if parsed is None:
-        return False
-    addr = ipaddress.ip_address(parsed)
-    return addr.is_loopback
 
 
 def get_client_ip() -> str | None:
     """Return the real client IP when behind a trusted local proxy."""
     peer_ip = request.remote_addr
-    if not _is_trusted_proxy(peer_ip):
+    peer = _valid_ip(peer_ip)
+    if not peer or not ipaddress.ip_address(peer).is_loopback:
         return peer_ip
 
-    forwarded_for = request.headers.get("X-Forwarded-For", "")
-    for forwarded_ip in forwarded_for.split(","):
+    for forwarded_ip in request.headers.get("X-Forwarded-For", "").split(","):
         parsed = _valid_ip(forwarded_ip)
         if parsed:
             return parsed
 
-    real_ip = _valid_ip(request.headers.get("X-Real-IP"))
-    return real_ip or peer_ip
+    return _valid_ip(request.headers.get("X-Real-IP")) or peer_ip
+
+
+def _build_where(args) -> tuple[list, list]:
+    """Build SQL WHERE clauses and params from request query parameters."""
+    conditions, params = [], []
+
+    time_from = args.get("time_from")
+    time_to = args.get("time_to")
+    if time_from:
+        conditions.append("ts >= ?")
+        params.append(time_from)
+    if time_to:
+        conditions.append("ts <= ?")
+        params.append(time_to)
+
+    types = args.get("type")
+    if types:
+        type_list = [t.strip() for t in types.split(",") if t.strip()]
+        if type_list:
+            conditions.append(f"type IN ({','.join('?' * len(type_list))})")
+            params.extend(type_list)
+
+    src_ip = args.get("src_ip")
+    if src_ip:
+        conditions.append("src_ip LIKE ?")
+        params.append(f"{src_ip}%")
+
+    severity = args.get("severity")
+    if severity:
+        sev_list = [s.strip() for s in severity.split(",") if s.strip()]
+        if sev_list:
+            conditions.append(f"severity IN ({','.join('?' * len(sev_list))})")
+            params.extend(sev_list)
+
+    q = args.get("q")
+    if q:
+        like = f"%{q}%"
+        conditions.append(
+            "(payload LIKE ? OR src_ip LIKE ? OR facility LIKE ? "
+            "OR severity LIKE ? OR oid LIKE ? OR tags LIKE ?)"
+        )
+        params.extend([like] * 6)
+
+    return conditions, params
 
 # ---------------------------------------------------------------------------
 # SSE Hub — pub/sub for real-time push
@@ -183,28 +213,20 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
             return jsonify({"error": "write queue full"}), 503
         return jsonify({"status": "ok"}), 202
 
-    def runtime_status() -> dict:
+    @app.route("/health", methods=["GET"])
+    def health():
         writer = app.config.get("DB_WRITER")
-        queue_max_size = write_queue.maxsize if write_queue.maxsize > 0 else None
-        status = {
+        return jsonify({
             "status": "healthy",
             "queue": {
                 "size": write_queue.qsize(),
-                "max_size": queue_max_size,
+                "max_size": write_queue.maxsize or None,
             },
             "sse_clients": sse_hub.client_count,
             "metrics": runtime_metrics.snapshot(),
             "db_writer": writer.health_snapshot() if writer else {"configured": False},
-        }
-        return status
+        }), 200
 
-    @app.route("/health", methods=["GET"])
-    def health():
-        return jsonify(runtime_status()), 200
-
-    @app.route("/api/status", methods=["GET"])
-    def api_status():
-        return jsonify(runtime_status()), 200
 
     @app.route("/api/events/cleanup", methods=["POST"])
     def api_events_cleanup():
@@ -220,24 +242,11 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
             return jsonify({"error": "before_ts must be an ISO 8601 timestamp"}), 400
 
         db = get_db()
-        total_before = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-        to_delete = db.execute(
-            "SELECT COUNT(*) FROM events WHERE ts < ?",
-            (cutoff,),
-        ).fetchone()[0]
-        db.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
+        cur = db.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
         db.commit()
         db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        total_after = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-
-        logger.info("Deleted %d events older than %s via Web UI", to_delete, cutoff)
-        return jsonify({
-            "status": "ok",
-            "before_ts": cutoff,
-            "deleted": to_delete,
-            "total_before": total_before,
-            "total_after": total_after,
-        }), 200
+        logger.info("Deleted %d events older than %s via Web UI", cur.rowcount, cutoff)
+        return jsonify({"status": "ok", "before_ts": cutoff, "deleted": cur.rowcount}), 200
 
     # ------------------------------------------------------------------
     # REST API — GET /api/events
@@ -246,86 +255,29 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
     def api_events():
         db = get_db()
 
-        # Pagination
         page = max(1, request.args.get("page", 1, type=int))
         per_page = min(200, max(1, request.args.get("per_page", 50, type=int)))
 
-        # Build WHERE clauses
-        conditions = []
-        params = []
+        conditions, params = _build_where(request.args)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-        # Time range
-        time_from = request.args.get("time_from")
-        time_to = request.args.get("time_to")
-        if time_from:
-            conditions.append("ts >= ?")
-            params.append(time_from)
-        if time_to:
-            conditions.append("ts <= ?")
-            params.append(time_to)
-
-        # Event type filter (comma-separated)
-        types = request.args.get("type")
-        if types:
-            type_list = [t.strip() for t in types.split(",") if t.strip()]
-            if type_list:
-                placeholders = ",".join("?" * len(type_list))
-                conditions.append(f"type IN ({placeholders})")
-                params.extend(type_list)
-
-        # Source IP filter (prefix match)
-        src_ip = request.args.get("src_ip")
-        if src_ip:
-            conditions.append("src_ip LIKE ?")
-            params.append(f"{src_ip}%")
-
-        # Severity filter
-        severity = request.args.get("severity")
-        if severity:
-            sev_list = [s.strip() for s in severity.split(",") if s.strip()]
-            if sev_list:
-                placeholders = ",".join("?" * len(sev_list))
-                conditions.append(f"severity IN ({placeholders})")
-                params.extend(sev_list)
-
-        # Global search (fuzzy match across multiple fields)
-        q = request.args.get("q")
-        if q:
-            conditions.append(
-                "(payload LIKE ? OR src_ip LIKE ? OR facility LIKE ? "
-                "OR severity LIKE ? OR oid LIKE ? OR tags LIKE ?)"
-            )
-            like = f"%{q}%"
-            params.extend([like] * 6)
-
-        where = ""
-        if conditions:
-            where = "WHERE " + " AND ".join(conditions)
-
-        # Sorting
         allowed_sort = {"ts", "src_ip", "type", "severity", "facility", "id"}
         sort_col = request.args.get("sort", "ts")
         if sort_col not in allowed_sort:
             sort_col = "ts"
         order = "DESC" if request.args.get("order", "desc").upper() == "DESC" else "ASC"
 
-        # Count total matching rows
-        count_sql = f"SELECT COUNT(*) FROM events {where}"
-        total = db.execute(count_sql, params).fetchone()[0]
-
-        # Fetch page
+        total = db.execute(f"SELECT COUNT(*) FROM events {where}", params).fetchone()[0]
         offset = (page - 1) * per_page
-        data_sql = (
+        rows = db.execute(
             f"SELECT id, ts, src_ip, type, facility, severity, oid, varbinds, payload, tags "
-            f"FROM events {where} ORDER BY {sort_col} {order} "
-            f"LIMIT ? OFFSET ?"
-        )
-        rows = db.execute(data_sql, params + [per_page, offset]).fetchall()
+            f"FROM events {where} ORDER BY {sort_col} {order} LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
 
         events = []
         for r in rows:
             d = dict(r)
-            # Truncate payload for list view
             if d.get("payload") and len(d["payload"]) > 200:
                 d["payload_preview"] = d["payload"][:200] + "..."
             else:
@@ -336,7 +288,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
             "page": page,
             "per_page": per_page,
             "total": total,
-            "total_pages": max(1, -(-total // per_page)),  # ceil division
+            "total_pages": max(1, -(-total // per_page)),
             "sort": sort_col,
             "order": order.lower(),
             "events": events,
@@ -348,38 +300,17 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
     @app.route("/api/kpi", methods=["GET"])
     def api_kpi():
         db = get_db()
-
-        conditions = []
-        params = []
-
-        time_from = request.args.get("time_from")
-        time_to = request.args.get("time_to")
-        if time_from:
-            conditions.append("ts >= ?")
-            params.append(time_from)
-        if time_to:
-            conditions.append("ts <= ?")
-            params.append(time_to)
-
-        where = ""
-        if conditions:
-            where = "WHERE " + " AND ".join(conditions)
+        conditions, params = _build_where(request.args)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
         total = db.execute(f"SELECT COUNT(*) FROM events {where}", params).fetchone()[0]
-
-        counts = {}
-        for etype in ("syslog", "snmptrap", "webhook"):
-            cond = list(conditions) + ["type = ?"]
-            p = list(params) + [etype]
-            w = "WHERE " + " AND ".join(cond)
-            counts[etype] = db.execute(f"SELECT COUNT(*) FROM events {w}", p).fetchone()[0]
-
-        return jsonify({
-            "total": total,
-            "syslog": counts["syslog"],
-            "snmptrap": counts["snmptrap"],
-            "webhook": counts["webhook"],
-        })
+        rows = db.execute(
+            f"SELECT type, COUNT(*) as count FROM events {where} GROUP BY type", params
+        ).fetchall()
+        counts = {r["type"]: r["count"] for r in rows}
+        for t in ("syslog", "snmptrap", "webhook"):
+            counts.setdefault(t, 0)
+        return jsonify({"total": total, **counts})
 
     # ------------------------------------------------------------------
     # REST API — GET /api/analytics
@@ -387,107 +318,44 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
     @app.route("/api/analytics", methods=["GET"])
     def api_analytics():
         db = get_db()
+        conditions, params = _build_where(request.args)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-        # Build WHERE clauses
-        conditions = []
-        params = []
-
-        # Time range
-        time_from = request.args.get("time_from")
-        time_to = request.args.get("time_to")
-        if time_from:
-            conditions.append("ts >= ?")
-            params.append(time_from)
-        if time_to:
-            conditions.append("ts <= ?")
-            params.append(time_to)
-
-        # Event type filter (comma-separated)
-        types = request.args.get("type")
-        if types:
-            type_list = [t.strip() for t in types.split(",") if t.strip()]
-            if type_list:
-                placeholders = ",".join("?" * len(type_list))
-                conditions.append(f"type IN ({placeholders})")
-                params.extend(type_list)
-
-        # Source IP filter (prefix match)
-        src_ip = request.args.get("src_ip")
-        if src_ip:
-            conditions.append("src_ip LIKE ?")
-            params.append(f"{src_ip}%")
-
-        # Severity filter
-        severity = request.args.get("severity")
-        if severity:
-            sev_list = [s.strip() for s in severity.split(",") if s.strip()]
-            if sev_list:
-                placeholders = ",".join("?" * len(sev_list))
-                conditions.append(f"severity IN ({placeholders})")
-                params.extend(sev_list)
-
-        # Global search
-        q = request.args.get("q")
-        if q:
-            conditions.append(
-                "(payload LIKE ? OR src_ip LIKE ? OR facility LIKE ? "
-                "OR severity LIKE ? OR oid LIKE ? OR tags LIKE ?)"
-            )
-            like = f"%{q}%"
-            params.extend([like] * 6)
-
-        where = ""
-        if conditions:
-            where = "WHERE " + " AND ".join(conditions)
-
-        # 1. Group by type
         type_rows = db.execute(
-            f"SELECT type, COUNT(*) as count FROM events {where} GROUP BY type",
-            params
+            f"SELECT type, COUNT(*) as count FROM events {where} GROUP BY type", params
         ).fetchall()
         types_res = {r["type"]: r["count"] for r in type_rows}
         for t in ("syslog", "snmptrap", "webhook"):
             types_res.setdefault(t, 0)
 
-        # 2. Group by severity
         sev_rows = db.execute(
-            f"SELECT severity, COUNT(*) as count FROM events {where} GROUP BY severity",
-            params
+            f"SELECT severity, COUNT(*) as count FROM events {where} GROUP BY severity", params
         ).fetchall()
         severities_res = {r["severity"] if r["severity"] else "none": r["count"] for r in sev_rows}
 
-        # 3. Top source IPs
         ip_rows = db.execute(
-            f"SELECT src_ip, COUNT(*) as count FROM events {where} GROUP BY src_ip ORDER BY count DESC LIMIT 10",
-            params
+            f"SELECT src_ip, COUNT(*) as count FROM events {where} "
+            f"GROUP BY src_ip ORDER BY count DESC LIMIT 10",
+            params,
         ).fetchall()
-        top_ips_res = [{"ip": r["src_ip"] if r["src_ip"] else "unknown", "count": r["count"]} for r in ip_rows]
+        top_ips_res = [{"ip": r["src_ip"] or "unknown", "count": r["count"]} for r in ip_rows]
 
-        # 4. Timeline buckets (daily vs hourly)
-        span_row = db.execute(
-            f"SELECT MIN(ts), MAX(ts) FROM events {where}",
-            params
-        ).fetchone()
-
+        span_row = db.execute(f"SELECT MIN(ts), MAX(ts) FROM events {where}", params).fetchone()
         scale = "hour"
         if span_row and span_row[0] and span_row[1]:
             try:
                 min_t = datetime.fromisoformat(span_row[0].rstrip("Z").replace(" ", "T"))
                 max_t = datetime.fromisoformat(span_row[1].rstrip("Z").replace(" ", "T"))
-                diff_days = (max_t - min_t).days
-                if diff_days > 3:
+                if (max_t - min_t).days > 3:
                     scale = "day"
             except ValueError:
                 pass
 
-        if scale == "day":
-            strftime_clause = "strftime('%Y-%m-%d', ts)"
-        else:
-            strftime_clause = "strftime('%Y-%m-%dT%H:00:00', ts)"
-
+        strftime_clause = "strftime('%Y-%m-%d', ts)" if scale == "day" else "strftime('%Y-%m-%dT%H:00:00', ts)"
         timeline_rows = db.execute(
-            f"SELECT {strftime_clause} as bucket, COUNT(*) as count FROM events {where} GROUP BY bucket ORDER BY bucket ASC",
-            params
+            f"SELECT {strftime_clause} as bucket, COUNT(*) as count "
+            f"FROM events {where} GROUP BY bucket ORDER BY bucket ASC",
+            params,
         ).fetchall()
         timeline_res = [{"time": r["bucket"], "count": r["count"]} for r in timeline_rows]
 
@@ -496,7 +364,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
             "severities": severities_res,
             "top_ips": top_ips_res,
             "timeline": timeline_res,
-            "timeline_scale": scale
+            "timeline_scale": scale,
         })
 
     # ------------------------------------------------------------------

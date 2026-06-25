@@ -190,7 +190,7 @@ cd simple-nms
         "enabled": true,
         "host": "0.0.0.0",
         "port": 162,
-        "community": "your-community-string",
+        "community": "simplenms",
         "mib_dirs": ["/home/genie/mibs", "/usr/share/snmp/mibs"],
         "mib_modules": ["SNMPv2-MIB", "IF-MIB", "IP-MIB", "HOST-RESOURCES-MIB"]
     },
@@ -297,13 +297,13 @@ s.close()
 
 ```bash
 # linkDown trap
-snmptrap -v2c -c your-community 127.0.0.1:162 '' \
+snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
   1.3.6.1.6.3.1.1.5.3 \
   1.3.6.1.2.1.2.2.1.1 i 3 \
   1.3.6.1.2.1.2.2.1.2 s "GigabitEthernet0/1"
 
 # 使用 MIB 名稱（需要 snmp-mibs-downloader）
-snmptrap -v2c -c your-community 127.0.0.1:162 '' \
+snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
   IF-MIB::linkDown \
   IF-MIB::ifIndex i 3 \
   IF-MIB::ifDescr s "GigabitEthernet0/1"
@@ -495,7 +495,7 @@ Linux rsyslog：
 Cisco IOS：
 
 ```
-snmp-server host 10.0.0.100 version 2c your-community
+snmp-server host 10.0.0.100 version 2c simplenms
 snmp-server enable traps
 ```
 

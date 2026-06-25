@@ -45,12 +45,12 @@ Using `snmptrap` (install: `sudo apt install snmp`):
 
 ```bash
 # SNMPv2c linkDown trap
-snmptrap -v2c -c public 127.0.0.1:162 '' \
+snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
     1.3.6.1.6.3.1.1.5.3 \
     1.3.6.1.2.1.2.2.1.1 i 3
 
 # SNMPv2c custom trap
-snmptrap -v2c -c public 127.0.0.1:162 '' \
+snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
     1.3.6.1.4.1.99999 \
     1.3.6.1.4.1.99999.1 s "CPU utilization 95%"
 ```
@@ -306,7 +306,7 @@ set system syslog host 10.0.0.100 port 514
 
 **Cisco IOS:**
 ```
-snmp-server host 10.0.0.100 version 2c public
+snmp-server host 10.0.0.100 version 2c simplenms
 snmp-server enable traps
 ```
 
