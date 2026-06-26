@@ -51,6 +51,33 @@ else
     cp "$PROJECT_ROOT"/config.json /opt/simple-nms/
 fi
 
+# Prompt user for SNMP community
+echo "Configuring SNMP Trap community..."
+if [ -t 0 ]; then
+    read -p "Enter SNMP community string for traps [simplenms]: " USER_COMMUNITY
+    USER_COMMUNITY=${USER_COMMUNITY:-simplenms}
+else
+    USER_COMMUNITY="simplenms"
+    echo "Non-interactive shell detected. Using default community: $USER_COMMUNITY"
+fi
+
+# Write community to config.json
+python3 -c "
+import json
+path = '/opt/simple-nms/config.json'
+try:
+    with open(path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+if 'snmptrap' not in data:
+    data['snmptrap'] = {}
+data['snmptrap']['community'] = '$USER_COMMUNITY'
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=4)
+"
+echo "SNMP community configured as: $USER_COMMUNITY"
+
 echo "Installing Python dependencies..."
 python3 -m venv /opt/simple-nms/venv
 /opt/simple-nms/venv/bin/pip install --upgrade pip
