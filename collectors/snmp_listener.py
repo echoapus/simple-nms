@@ -39,14 +39,30 @@ class MibResolver:
         try:
             mib_builder = snmp_engine.get_mib_builder()
 
-            try:
-                from pysnmp.smi import compiler as smi_compiler
-                sources = [f"file://{d}" for d in mib_dirs] if mib_dirs else []
-                smi_compiler.add_mib_compiler(mib_builder, sources=sources or None)
-                logger.info("MIB compiler enabled%s",
-                            f" with sources: {sources}" if sources else " (default sources)")
-            except Exception:
-                pass
+            # Automatically discover MIB files in custom directories
+            discovered_modules = []
+            if mib_dirs:
+                try:
+                    from pysnmp.smi import compiler
+                    sources = list(mib_dirs) + list(compiler.DEFAULT_SOURCES)
+                    compiler.add_mib_compiler(mib_builder, sources=sources)
+                    logger.info("MIB compiler configured with sources: %s", sources)
+                except Exception as e:
+                    logger.warning("Failed to configure MIB compiler: %s", e)
+
+                import os
+                for d in mib_dirs:
+                    if os.path.isdir(d):
+                        try:
+                            for entry in os.listdir(d):
+                                path = os.path.join(d, entry)
+                                if os.path.isfile(path):
+                                    name, ext = os.path.splitext(entry)
+                                    if ext.lower() in ('.mib', '.my', '.txt', '.py', ''):
+                                        if name and name[0].isalpha() and all(c.isalnum() or c in ('-', '_') for c in name):
+                                            discovered_modules.append(name)
+                        except Exception as e:
+                            logger.warning("Error scanning MIB directory %s: %s", d, e)
 
             # Pre-load MIB modules — pysmi will compile from ASN.1 on first load
             default_modules = [
@@ -54,7 +70,12 @@ class MibResolver:
                 "TCP-MIB", "UDP-MIB", "HOST-RESOURCES-MIB",
                 "ENTITY-MIB", "BRIDGE-MIB",
             ]
-            load_list = mib_modules if mib_modules else default_modules
+            load_list = list(mib_modules) if mib_modules else default_modules
+
+            for mod in discovered_modules:
+                if mod not in load_list:
+                    load_list.append(mod)
+
             for mod in load_list:
                 try:
                     mib_builder.load_modules(mod)

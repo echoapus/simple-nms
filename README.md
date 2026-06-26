@@ -20,7 +20,7 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
   - Responsive layout (mobile-friendly)
   - Server-Sent Events (SSE) for live updates
 - **Single Python process** — no external web server, message broker, or database server required
-- **Reliability** — write failures trigger exponential back-off retry with JSONL file fallback
+- **Reliability** — write failures are logged and tracked via dropped metrics, with fallback JSONL file capability
 - **Reverse-proxy aware webhooks** — direct clients use the socket peer IP; requests forwarded by a local proxy can use `X-Forwarded-For` / `X-Real-IP` for the original client IP
 
 ## Quick Start

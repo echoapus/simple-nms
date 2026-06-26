@@ -10,7 +10,6 @@ GET  /api/sse          — Server-Sent Events stream for real-time updates
 """
 
 import json
-import ipaddress
 import logging
 import queue
 import sqlite3
@@ -18,7 +17,6 @@ import threading
 from datetime import datetime, timezone
 
 import os
-
 from flask import Flask, Response, request, jsonify, g, send_from_directory
 
 from metrics import runtime_metrics
@@ -26,28 +24,16 @@ from metrics import runtime_metrics
 logger = logging.getLogger(__name__)
 
 
-def _valid_ip(value: str | None) -> str | None:
-    candidate = (value or "").strip()
-    try:
-        ipaddress.ip_address(candidate)
-        return candidate
-    except ValueError:
-        return None
-
-
-def get_client_ip() -> str | None:
-    """Return the real client IP when behind a trusted local proxy."""
-    peer_ip = request.remote_addr
-    peer = _valid_ip(peer_ip)
-    if not peer or not ipaddress.ip_address(peer).is_loopback:
-        return peer_ip
-
-    for forwarded_ip in request.headers.get("X-Forwarded-For", "").split(","):
-        parsed = _valid_ip(forwarded_ip)
-        if parsed:
-            return parsed
-
-    return _valid_ip(request.headers.get("X-Real-IP")) or peer_ip
+def get_client_ip() -> str:
+    peer = request.remote_addr or ""
+    if peer in ("127.0.0.1", "::1"):
+        xff = request.headers.get("X-Forwarded-For")
+        if xff:
+            return xff.split(",")[0].strip()
+        xri = request.headers.get("X-Real-IP")
+        if xri:
+            return xri.strip()
+    return peer
 
 
 def _build_where(args) -> tuple[list, list]:
@@ -175,7 +161,6 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
         if "db" not in g:
             g.db = sqlite3.connect(app.config["DB_PATH"])
             g.db.row_factory = sqlite3.Row
-            g.db.execute("PRAGMA journal_mode=WAL")
         return g.db
 
     @app.teardown_appcontext

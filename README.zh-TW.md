@@ -191,7 +191,7 @@ cd simple-nms
         "host": "0.0.0.0",
         "port": 162,
         "community": "simplenms",
-        "mib_dirs": ["/home/genie/mibs", "/usr/share/snmp/mibs"],
+        "mib_dirs": ["/usr/share/snmp/mibs"],
         "mib_modules": ["SNMPv2-MIB", "IF-MIB", "IP-MIB", "HOST-RESOURCES-MIB"]
     },
     "webhook": {
@@ -404,16 +404,16 @@ curl "http://localhost/health"
 
 ### 運作原理
 
-Simple NMS 使用 pysnmp 的 MIB 編譯器（pysmi）在啟動時自動將 ASN.1 格式的 MIB 原始檔（`.txt`/`.my`）編譯為 Python 格式，快取到 `~/.pysnmp/mibs/`。後續收到 SNMP Trap 時，透過 `MibResolver` 將數字 OID 翻譯為可讀名稱。
+Simple NMS 使用 pysnmp 的內建預編譯 MIB 進行 OID 的解析，後續收到 SNMP Trap 時，透過 `MibResolver` 將數字 OID 翻譯為可讀名稱。
 
-解析結果會被 cache，同一個 OID 不會重複查詢。無法解析的 OID 會保留原始數字格式，不影響系統運作。
+解析結果會被快取（cache），同一個 OID 不會重複查詢。無法解析的 OID 會保留原始數字格式，不影響系統運作。
 
 ### 設定方式
 
 在 `config.json` 的 `snmptrap` 區塊設定：
 
 ```json
-"mib_dirs": ["/home/genie/mibs", "/usr/share/snmp/mibs"],
+"mib_dirs": ["/usr/share/snmp/mibs"],
 "mib_modules": ["SNMPv2-MIB", "IF-MIB", "IP-MIB"]
 ```
 
@@ -422,12 +422,7 @@ Simple NMS 使用 pysnmp 的 MIB 編譯器（pysmi）在啟動時自動將 ASN.1
 
 ### 加入自訂 MIB
 
-把廠商提供的 MIB 檔案放到 `mib_dirs` 指定的目錄，然後把模組名稱加入 `mib_modules` 清單。例如有一個 `ACME-SWITCH-MIB.txt`：
-
-```json
-"mib_dirs": ["/home/genie/mibs"],
-"mib_modules": ["SNMPv2-MIB", "IF-MIB", "ACME-SWITCH-MIB"]
-```
+把廠商提供的 MIB 檔案放到 `mib_dirs` 指定的目錄即可（例如 `/usr/share/snmp/mibs`），系統啟動時會自動偵測並載入。
 
 重啟 Simple NMS 即可。
 
@@ -435,14 +430,9 @@ Simple NMS 使用 pysnmp 的 MIB 編譯器（pysmi）在啟動時自動將 ASN.1
 
 ## 可靠性機制
 
-### 寫入失敗重試
+### 寫入失敗處理
 
-DB Writer 在 SQLite 寫入失敗時：
-
-1. 將事件放回 Write Queue，附加重試計數器
-2. 使用指數退避等待（2^n 秒，最長 30 秒）
-3. 超過 5 次重試後，將事件寫入 `data/events_fallback.jsonl` 備援檔案
-4. 備援檔案為 JSON Lines 格式，可事後手動匯入
+DB Writer 在 SQLite 寫入失敗時，會立即記錄錯誤日誌並增加丟棄事件的指標計數（dropped metrics），以避免阻塞寫入佇列（Write Queue）導致新事件無法接收。系統仍保留 `_dump_to_fallback` 方法以支援將事件手動或特定條件下寫入備援檔案的備份功能。
 
 ### SSE 斷線重連
 

@@ -114,7 +114,6 @@ class DBWriter(threading.Thread):
             self._last_error = None
 
         conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         logger.info("DBWriter started (batch=%d, flush=%.0fms)",
                      self.batch_size, self.flush_interval * 1000)
@@ -155,19 +154,10 @@ class DBWriter(threading.Thread):
             except sqlite3.Error as exc:
                 with self._stats_lock:
                     self._last_error = str(exc)
-                logger.exception("DB write failed — re-queuing %d events", len(batch))
+                logger.exception("DB write failed — dropped %d events", len(batch))
+                from metrics import runtime_metrics
                 for item in batch:
-                    item.setdefault("_retries", 0)
-                    item["_retries"] += 1
-                    if item["_retries"] <= 5:
-                        try:
-                            self.q.put_nowait(item)
-                        except queue.Full:
-                            logger.exception("Write queue full during retry — dumping event to fallback")
-                            self._dump_to_fallback(item)
-                    else:
-                        self._dump_to_fallback(item)
-                time.sleep(min(2 ** batch[0].get("_retries", 1), 30))  # exponential back-off
+                    runtime_metrics.inc_dropped(item.get("type", "webhook"))
 
         conn.close()
         with self._stats_lock:
@@ -188,3 +178,4 @@ class DBWriter(threading.Thread):
             logger.warning("Event dumped to fallback file: %s", fallback_path)
         except OSError:
             logger.exception("Failed to write fallback file")
+
