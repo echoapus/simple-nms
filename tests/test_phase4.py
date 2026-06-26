@@ -12,11 +12,14 @@ import subprocess
 import sys
 import time
 
+# Support running tests from any directory
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from database import init_db, DBWriter
 from test_support import check, run_suite
 
 DB = "/tmp/snms_test_p4.db"
-PROJECT = os.path.dirname(os.path.abspath(__file__))
+PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def test_retry_mechanism():

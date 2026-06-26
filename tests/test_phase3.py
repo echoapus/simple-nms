@@ -6,8 +6,12 @@ Usage:  python3 test_phase3.py
 
 import json
 import os
+import sys
 import queue
 import time
+
+# Support running tests from any directory
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import init_db, DBWriter
 from test_support import check, run_suite

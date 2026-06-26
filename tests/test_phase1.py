@@ -7,9 +7,13 @@ No network listeners required — uses Flask test client and direct function cal
 
 import json
 import os
+import sys
 import queue
 import sqlite3
 import time
+
+# Support running tests from any directory
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import init_db, DBWriter
 from collectors.syslog_listener import _parse_syslog
