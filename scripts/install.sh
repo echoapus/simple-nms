@@ -41,9 +41,15 @@ echo "Deploying to /opt/simple-nms..."
 mkdir -p /opt/simple-nms/data
 cp -r "$PROJECT_ROOT"/src/simplenms/* /opt/simple-nms/
 cp "$PROJECT_ROOT"/cleanup.py /opt/simple-nms/
-cp "$PROJECT_ROOT"/config.json /opt/simple-nms/
 cp "$PROJECT_ROOT"/requirements.txt /opt/simple-nms/
 test -f "$PROJECT_ROOT"/resources/mibs.tar.gz && cp "$PROJECT_ROOT"/resources/mibs.tar.gz /opt/simple-nms/ || true
+
+# Preserve config.json if it already exists to prevent losing user settings
+if [ -f /opt/simple-nms/config.json ]; then
+    echo "Existing config.json found — preserving user settings."
+else
+    cp "$PROJECT_ROOT"/config.json /opt/simple-nms/
+fi
 
 echo "Installing Python dependencies..."
 python3 -m venv /opt/simple-nms/venv
@@ -57,10 +63,39 @@ chown -R simplenms:simplenms /opt/simple-nms
 chmod -R 750 /opt/simple-nms
 chmod -R 770 /opt/simple-nms/data
 
+# Detect port conflicts before starting the service
+echo "Checking for port conflicts..."
+CFG_FILE="/opt/simple-nms/config.json"
+WEB_PORT=$(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); print(cfg.get('webhook', {}).get('port', 80))" 2>/dev/null || echo 80)
+SYSLOG_PORT=$(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); print(cfg.get('syslog', {}).get('port', 514))" 2>/dev/null || echo 514)
+SNMP_PORT=$(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); print(cfg.get('snmptrap', {}).get('port', 162))" 2>/dev/null || echo 162)
+
+if command -v ss >/dev/null 2>&1; then
+    if ss -tln | grep -q ":$WEB_PORT "; then
+        echo "Warning: TCP port $WEB_PORT (Web/Webhook) is already in use by another process."
+    fi
+    if ss -uln | grep -q ":$SYSLOG_PORT "; then
+        echo "Warning: UDP port $SYSLOG_PORT (Syslog) is already in use. You may need to stop rsyslog/syslog-ng."
+    fi
+    if ss -uln | grep -q ":$SNMP_PORT "; then
+        echo "Warning: UDP port $SNMP_PORT (SNMP Trap) is already in use. You may need to stop the system snmpd."
+    fi
+fi
+
 echo "Starting simple-nms..."
 systemctl daemon-reload
 systemctl enable --now simple-nms
 
-printf '%s\n' "Installed. Check with: systemctl status simple-nms" \
-  "Logs: journalctl -u simple-nms -f" \
-  "Retention is optional; see INSTALL.md."
+# Retrieve primary local IP address for user convenience
+PRIMARY_IP=$(hostname -I | awk '{print $1}' 2>/dev/null || ip route get 1.1.1.1 | awk '{print $7}' 2>/dev/null || echo "localhost")
+if [ -z "$PRIMARY_IP" ]; then
+    PRIMARY_IP="localhost"
+fi
+
+echo "=================================================================="
+echo "🎉 Simple NMS installed successfully!"
+echo "=================================================================="
+echo "👉 Web UI URL:       http://$PRIMARY_IP:$WEB_PORT"
+echo "👉 Check Status:     systemctl status simple-nms"
+echo "👉 View Logs:        journalctl -u simple-nms -f"
+echo "=================================================================="
