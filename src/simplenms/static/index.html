@@ -1423,7 +1423,8 @@ tbody td {
 
   function updateLastUpdate() {
     const now = new Date();
-    dom.lastUpdate.textContent = now.toLocaleTimeString('en-GB', { hour12: false });
+    const timeStr = now.toLocaleTimeString('en-GB', { hour12: false });
+    dom.lastUpdate.textContent = `Sync: ${timeStr}`;
   }
 
   // ── API calls ──
