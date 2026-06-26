@@ -10,6 +10,13 @@ echo "Stopping simple-nms..."
 systemctl disable --now simple-nms 2>/dev/null || true
 rm -f /etc/systemd/system/simple-nms.service
 systemctl daemon-reload
+
+# Terminate any remaining processes running as simplenms to prevent userdel from failing
+echo "Terminating any orphaned processes running as simplenms..."
+pkill -u simplenms 2>/dev/null || true
+sleep 0.5
+pkill -9 -u simplenms 2>/dev/null || true
+
 userdel simplenms 2>/dev/null || true
 rm -rf /opt/simple-nms
 rm -f /var/log/simple-nms-cleanup.log
@@ -98,4 +105,9 @@ if [ -d "$MIB_DIR" ] && [ -z "$(ls -A "$MIB_DIR" 2>/dev/null)" ]; then
     rmdir "$MIB_DIR" 2>/dev/null || true
 fi
 
-echo "Simple NMS removed."
+echo "=================================================================="
+echo "🎉 Simple NMS has been successfully removed!"
+echo "=================================================================="
+echo "💡 Note: If you added a manual cron job for cleanup.py,"
+echo "   please remember to remove it from your crontab (crontab -e)."
+echo "=================================================================="
