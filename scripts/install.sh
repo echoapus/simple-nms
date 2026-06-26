@@ -6,6 +6,21 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+# Ask if HTTP proxy is needed
+if [ -t 0 ]; then
+    read -p "Do you need to use an HTTP proxy for internet access? [y/N]: " USE_PROXY
+    if [[ "$USE_PROXY" =~ ^[Yy]$ ]]; then
+        read -p "Enter proxy URL (e.g., http://10.0.0.1:8080): " PROXY_URL
+        if [ -n "$PROXY_URL" ]; then
+            export http_proxy="$PROXY_URL"
+            export https_proxy="$PROXY_URL"
+            export HTTP_PROXY="$PROXY_URL"
+            export HTTPS_PROXY="$PROXY_URL"
+            echo "HTTP proxy configured: $PROXY_URL"
+        fi
+    fi
+fi
+
 echo "Installing system prerequisites..."
 if [ -f /etc/debian_version ]; then
     apt-get update
