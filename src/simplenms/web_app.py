@@ -19,6 +19,13 @@ from datetime import datetime, timezone
 import os
 from flask import Flask, Response, request, jsonify, g, send_from_directory
 
+from mibs import (
+    ensure_module_symlink,
+    first_writable_dir,
+    list_mib_files,
+    parse_module_name,
+    parse_module_name_from_lines,
+)
 from metrics import runtime_metrics
 
 logger = logging.getLogger(__name__)
@@ -134,7 +141,7 @@ sse_hub = SSEHub()
 # Flask app factory
 # ---------------------------------------------------------------------------
 
-def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -> Flask:
+def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, snmp_collector=None, config_path: str = "config.json") -> Flask:
     """Create the unified Flask application."""
 
     app = Flask(__name__,
@@ -142,6 +149,8 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
                 static_url_path="/static")
     app.config["DB_PATH"] = db_path
     app.config["DB_WRITER"] = db_writer
+    app.config["SNMP_COLLECTOR"] = snmp_collector
+    app.config["CONFIG_PATH"] = config_path
 
     # Suppress default Flask request logging
     wlog = logging.getLogger("werkzeug")
@@ -383,5 +392,208 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None) -
                 "Connection": "keep-alive",
             },
         )
+
+    # ------------------------------------------------------------------
+    # REST API — GET /api/config & POST /api/config
+    # ------------------------------------------------------------------
+    def get_active_config_path() -> str:
+        db_path = app.config.get("DB_PATH", "data/events.db")
+        overlay_path = os.path.join(os.path.dirname(db_path) or "data", "config.json")
+        return overlay_path if os.path.exists(overlay_path) else app.config.get("CONFIG_PATH", "config.json")
+
+    def load_active_config() -> tuple[dict, str]:
+        path = get_active_config_path()
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f), path
+        except Exception:
+            return {}, path
+
+    def get_mib_dirs(cfg: dict) -> tuple[str, list[str]]:
+        db_path = app.config.get("DB_PATH", "data/events.db")
+        data_dir = os.path.dirname(db_path) or "data"
+        default_mib_dir = os.path.join(data_dir, "mibs")
+        mib_dirs = list(cfg.get("snmptrap", {}).get("mib_dirs", [default_mib_dir, "/usr/share/snmp/mibs"]))
+        if default_mib_dir not in mib_dirs:
+            mib_dirs = [default_mib_dir] + mib_dirs
+        return default_mib_dir, mib_dirs
+
+    @app.route("/api/config", methods=["GET"])
+    def api_config_get():
+        try:
+            cfg, path = load_active_config()
+            if not os.path.exists(path):
+                return jsonify({"error": "Config file not found"}), 404
+            return jsonify({
+                "community": cfg.get("snmptrap", {}).get("community", "simplenms"),
+                "webhook_port": cfg.get("webhook", {}).get("port", 80)
+            })
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/config", methods=["POST"])
+    def api_config_post():
+        body = request.get_json(silent=True) or {}
+        community = body.get("community")
+        webhook_port = body.get("webhook_port")
+        
+        cfg, path = load_active_config()
+        if not cfg and not os.path.exists(path):
+            return jsonify({"error": "Failed to read config: Config file not found"}), 500
+            
+        updated = False
+        port_changed = False
+        
+        # 1. Update community if provided
+        if community is not None:
+            if not isinstance(community, str) or not community.strip():
+                return jsonify({"error": "community string cannot be empty"}), 400
+            community = community.strip()
+            if "snmptrap" not in cfg:
+                cfg["snmptrap"] = {}
+            if cfg["snmptrap"].get("community") != community:
+                cfg["snmptrap"]["community"] = community
+                updated = True
+                # Dynamically update running collector
+                collector = app.config.get("SNMP_COLLECTOR")
+                if collector and hasattr(collector, "update_community"):
+                    collector.update_community(community)
+
+        # 2. Update webhook port if provided
+        if webhook_port is not None:
+            try:
+                port_val = int(webhook_port)
+                if port_val < 1 or port_val > 65535:
+                    raise ValueError()
+            except (ValueError, TypeError):
+                return jsonify({"error": "webhook_port must be a valid integer between 1 and 65535"}), 400
+                
+            if "webhook" not in cfg:
+                cfg["webhook"] = {}
+            if cfg["webhook"].get("port") != port_val:
+                cfg["webhook"]["port"] = port_val
+                updated = True
+                port_changed = True
+
+        if updated:
+            db_path = app.config.get("DB_PATH", "data/events.db")
+            data_dir = os.path.dirname(db_path) or "data"
+            overlay_path = os.path.join(data_dir, "config.json")
+            try:
+                os.makedirs(data_dir, exist_ok=True)
+                with open(overlay_path, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=4)
+                app.config["CONFIG_PATH"] = overlay_path
+            except Exception as e:
+                return jsonify({"error": f"Failed to write config: {e}"}), 500
+                
+        return jsonify({
+            "status": "ok",
+            "community": cfg.get("snmptrap", {}).get("community", "simplenms"),
+            "webhook_port": cfg.get("webhook", {}).get("port", 80),
+            "port_changed": port_changed
+        })
+
+    # ------------------------------------------------------------------
+    # REST API — MIB Management
+    # ------------------------------------------------------------------
+    @app.route("/api/mibs", methods=["GET"])
+    def api_mibs_get():
+        cfg, _ = load_active_config()
+        _, mib_dirs = get_mib_dirs(cfg)
+        return jsonify(list_mib_files(mib_dirs))
+
+    @app.route("/api/mibs", methods=["POST"])
+    def api_mibs_upload():
+        if "file" not in request.files:
+            return jsonify({"error": "No file part"}), 400
+        f = request.files["file"]
+        if f.filename == "":
+             return jsonify({"error": "No selected file"}), 400
+             
+        content_bytes = f.read()
+        try:
+            content = content_bytes.decode("utf-8", errors="ignore")
+        except Exception as e:
+            return jsonify({"error": f"Failed to read file content: {e}"}), 400
+            
+        real_name = parse_module_name_from_lines(content.splitlines()[:1000])
+                 
+        if not real_name:
+            return jsonify({
+                "error": "Invalid MIB format. File must contain a valid ASN.1 module header: 'ModuleName DEFINITIONS ::= BEGIN'"
+            }), 400
+             
+        cfg, _ = load_active_config()
+        default_mib_dir, mib_dirs = get_mib_dirs(cfg)
+        save_dir = first_writable_dir(mib_dirs, default_mib_dir)
+        
+        if not os.path.exists(save_dir):
+            try:
+                os.makedirs(save_dir, exist_ok=True)
+            except Exception as e:
+                return jsonify({"error": f"Failed to create MIB directory: {e}"}), 500
+                 
+        from werkzeug.utils import secure_filename
+        filename = secure_filename(f.filename)
+        if not filename:
+            filename = f"{real_name}.txt"
+        dest_path = os.path.join(save_dir, filename)
+         
+        try:
+            with open(dest_path, "wb") as out_f:
+                out_f.write(content_bytes)
+        except Exception as e:
+            return jsonify({"error": f"Failed to save MIB file: {e}"}), 500
+             
+        try:
+            ensure_module_symlink(save_dir, filename, real_name)
+        except Exception as e:
+            logger.warning("Failed to create module-name symlink for %s: %s", filename, e)
+                     
+        collector = app.config.get("SNMP_COLLECTOR")
+        if collector and hasattr(collector, "_resolver") and collector._resolver:
+            try:
+                collector._resolver.reload_discovered_mibs(save_dir)
+            except Exception as e:
+                logger.warning("Failed to dynamically reload MIB resolver: %s", e)
+                 
+        return jsonify({
+            "status": "ok",
+            "filename": filename,
+            "module_name": real_name,
+            "message": "MIB file uploaded and validated successfully"
+        }), 201
+
+    @app.route("/api/mibs/<filename>", methods=["DELETE"])
+    def api_mibs_delete(filename):
+        from werkzeug.utils import secure_filename
+        filename = secure_filename(filename)
+        
+        cfg, _ = load_active_config()
+        _, mib_dirs = get_mib_dirs(cfg)
+        
+        found = next(((os.path.join(d, filename), d) for d in mib_dirs
+                      if os.path.exists(os.path.join(d, filename))), None)
+        path, save_dir = found if found else (None, None)
+                
+        if not path or not save_dir:
+            return jsonify({"error": "MIB file not found"}), 404
+            
+        try:
+            real_name = parse_module_name(path)
+                 
+            os.remove(path)
+            
+            if real_name:
+                _, ext = os.path.splitext(filename)
+                link_name = f"{real_name}{ext}"
+                link_path = os.path.join(save_dir, link_name)
+                if os.path.islink(link_path):
+                     os.remove(link_path)
+        except Exception as e:
+            return jsonify({"error": f"Failed to delete MIB file: {e}"}), 500
+             
+        return jsonify({"status": "ok", "message": f"MIB file {filename} deleted successfully"})
 
     return app

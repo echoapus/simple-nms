@@ -4,8 +4,10 @@ import json
 import logging
 import queue
 import threading
+import time
 from datetime import datetime, timezone
 
+from mibs import discover_modules, first_writable_dir
 from metrics import runtime_metrics
 
 logger = logging.getLogger(__name__)
@@ -42,27 +44,25 @@ class MibResolver:
             # Automatically discover MIB files in custom directories
             discovered_modules = []
             if mib_dirs:
+                destination = first_writable_dir(mib_dirs)
+                if not destination:
+                    import os
+                    import tempfile
+                    destination = os.path.join(tempfile.gettempdir(), "pysnmp_mibs")
+                    try:
+                        os.makedirs(destination, exist_ok=True)
+                    except Exception:
+                        pass
+
                 try:
                     from pysnmp.smi import compiler
                     sources = list(mib_dirs) + list(compiler.DEFAULT_SOURCES)
-                    compiler.add_mib_compiler(mib_builder, sources=sources)
-                    logger.info("MIB compiler configured with sources: %s", sources)
+                    compiler.add_mib_compiler(mib_builder, sources=sources, destination=destination)
+                    logger.info("MIB compiler configured with sources: %s, destination: %s", sources, destination)
                 except Exception as e:
                     logger.warning("Failed to configure MIB compiler: %s", e)
 
-                import os
-                for d in mib_dirs:
-                    if os.path.isdir(d):
-                        try:
-                            for entry in os.listdir(d):
-                                path = os.path.join(d, entry)
-                                if os.path.isfile(path):
-                                    name, ext = os.path.splitext(entry)
-                                    if ext.lower() in ('.mib', '.my', '.txt', '.py', ''):
-                                        if name and name[0].isalpha() and all(c.isalnum() or c in ('-', '_') for c in name):
-                                            discovered_modules.append(name)
-                        except Exception as e:
-                            logger.warning("Error scanning MIB directory %s: %s", d, e)
+                discovered_modules = discover_modules(mib_dirs)
 
             # Pre-load MIB modules — pysmi will compile from ASN.1 on first load
             default_modules = [
@@ -80,7 +80,7 @@ class MibResolver:
                 try:
                     mib_builder.load_modules(mod)
                 except Exception as e:
-                    logger.debug("MIB module %s not loaded: %s", mod, e)
+                    logger.debug("MIB compiler: skipped unavailable MIB module %s: %s", mod, e)
 
             self._mib_view = view.MibViewController(mib_builder)
             logger.info("MIB resolver initialised")
@@ -98,6 +98,7 @@ class MibResolver:
             return self._cache[oid_str]
 
         if not self._mib_view:
+            logger.debug("MIB resolver: mib_view not initialized, cannot resolve %s", oid_str)
             return oid_str
 
         try:
@@ -108,15 +109,31 @@ class MibResolver:
             # Skip unhelpful resolutions like "SNMPv2-SMI::enterprises.99999.1"
             # that just prepend a generic prefix without real meaning
             if "::enterprises." in resolved or "::mib-2." in resolved:
+                logger.info("MIB resolver: Skipping generic resolution for %s (%s)", oid_str, resolved)
                 self._cache[oid_str] = oid_str
                 return oid_str
 
+            logger.info("MIB resolver: Successfully resolved %s -> %s", oid_str, resolved)
             self._cache[oid_str] = resolved
             return resolved
 
-        except Exception:
+        except Exception as e:
+            logger.warning("MIB resolver: Failed to resolve OID %s: %s", oid_str, e)
             self._cache[oid_str] = oid_str
             return oid_str
+
+    def reload_discovered_mibs(self, mib_dir: str) -> None:
+        """Dynamically scan and load newly uploaded MIB modules."""
+        if not self._mib_view:
+            return
+
+        mib_builder = self._mib_view.mibBuilder
+        for mod in discover_modules([mib_dir]):
+            try:
+                mib_builder.load_modules(mod)
+                logger.info("Dynamically loaded MIB module: %s", mod)
+            except Exception as e:
+                logger.debug("MIB compiler: skipped unavailable dynamic MIB module %s: %s", mod, e)
 
 
 class SNMPTrapCollector(threading.Thread):
@@ -131,6 +148,7 @@ class SNMPTrapCollector(threading.Thread):
         self.host = host
         self.port = port
         self.community = community
+        self._community_index = "default-area"
         self.mib_dirs = mib_dirs
         self.mib_modules = mib_modules
         self._engine = None
@@ -218,7 +236,7 @@ class SNMPTrapCollector(threading.Thread):
         self._engine = engine.SnmpEngine()
 
         # SNMPv1/v2c community string — must be configured BEFORE loading extra MIBs
-        snmp_config.add_v1_system(self._engine, "default-area", self.community)
+        snmp_config.add_v1_system(self._engine, self._community_index, self.community)
 
         # Transport
         snmp_config.add_transport(
@@ -245,6 +263,34 @@ class SNMPTrapCollector(threading.Thread):
             logger.exception("SNMP dispatcher error")
         finally:
             self._engine.transport_dispatcher.close_dispatcher()
+
+    def update_community(self, new_community: str) -> None:
+        """Dynamically update the SNMP community string."""
+        if not self._engine:
+            self.community = new_community
+            return
+
+        old_index = self._community_index
+        new_index = f"community-{time.monotonic_ns()}"
+        try:
+            from pysnmp.entity import config as snmp_config
+            snmp_config.add_v1_system(self._engine, new_index, new_community)
+
+            delete_v1_system = (
+                getattr(snmp_config, "delete_v1_system", None)
+                or getattr(snmp_config, "del_v1_system", None)
+            )
+            if delete_v1_system and old_index != new_index:
+                try:
+                    delete_v1_system(self._engine, old_index)
+                except Exception:
+                    logger.debug("SNMP trap collector community did not have an existing entry to replace")
+
+            self.community = new_community
+            self._community_index = new_index
+            logger.info("SNMP trap collector community dynamically updated to: %s", new_community)
+        except Exception as e:
+            logger.error("Failed to dynamically update SNMP community: %s", e)
 
     def stop(self) -> None:
         if self._engine:

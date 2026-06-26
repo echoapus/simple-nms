@@ -100,7 +100,7 @@ Simple NMS 是一套輕量級的網路管理系統，設計目標是用最少的
 ```
 simple-nms/
 ├── main.py                      # 入口：讀取設定、啟動所有元件
-├── database.py                  # SQLite schema、DB Writer 執行緒（含重試與 fallback）
+├── database.py                  # SQLite schema、DB Writer 執行緒
 ├── web_app.py                   # Flask app（Webhook + REST API + SSE + 靜態頁面）
 ├── config.json                  # 外部化設定（所有 port、MIB 路徑）
 ├── requirements.txt             # Python 依賴（flask, pysnmp, pysmi）
@@ -191,8 +191,7 @@ cd simple-nms
         "host": "0.0.0.0",
         "port": 162,
         "community": "simplenms",
-        "mib_dirs": ["/usr/share/snmp/mibs"],
-        "mib_modules": ["SNMPv2-MIB", "IF-MIB", "IP-MIB", "HOST-RESOURCES-MIB"]
+        "mib_dirs": ["/opt/simple-nms/data/mibs", "/usr/share/snmp/mibs"]
     },
     "webhook": {
         "enabled": true,
@@ -211,7 +210,6 @@ cd simple-nms
 | `writer.flush_interval_ms` | 未滿一批時的最長等待時間（毫秒） |
 | `snmptrap.community` | SNMP community string（需與網路設備一致） |
 | `snmptrap.mib_dirs` | ASN.1 MIB 檔案搜尋路徑（可放多個目錄） |
-| `snmptrap.mib_modules` | 啟動時要載入的 MIB 模組名稱 |
 | `webhook.port` | Web Server 監聽的 HTTP port |
 
 如果 Simple NMS 放在同一台主機的 HAProxy 後面，建議讓 Web Server 只監聽 loopback：
@@ -413,16 +411,14 @@ Simple NMS 使用 pysnmp 的內建預編譯 MIB 進行 OID 的解析，後續收
 在 `config.json` 的 `snmptrap` 區塊設定：
 
 ```json
-"mib_dirs": ["/usr/share/snmp/mibs"],
-"mib_modules": ["SNMPv2-MIB", "IF-MIB", "IP-MIB"]
+"mib_dirs": ["/opt/simple-nms/data/mibs", "/usr/share/snmp/mibs"]
 ```
 
 - `mib_dirs`：ASN.1 MIB 原始檔所在目錄，可指定多個
-- `mib_modules`：要載入的模組名稱（對應 MIB 檔名，不含副檔名）
 
 ### 加入自訂 MIB
 
-把廠商提供的 MIB 檔案放到 `mib_dirs` 指定的目錄即可（例如 `/usr/share/snmp/mibs`），系統啟動時會自動偵測並載入。
+把廠商提供的 MIB 檔案放到 `mib_dirs` 指定的目錄即可（例如 `/opt/simple-nms/data/mibs`），系統啟動時會自動偵測並載入。
 
 重啟 Simple NMS 即可。
 
@@ -432,7 +428,7 @@ Simple NMS 使用 pysnmp 的內建預編譯 MIB 進行 OID 的解析，後續收
 
 ### 寫入失敗處理
 
-DB Writer 在 SQLite 寫入失敗時，會立即記錄錯誤日誌並增加丟棄事件的指標計數（dropped metrics），以避免阻塞寫入佇列（Write Queue）導致新事件無法接收。系統仍保留 `_dump_to_fallback` 方法以支援將事件手動或特定條件下寫入備援檔案的備份功能。
+DB Writer 在 SQLite 寫入失敗時，會立即記錄錯誤日誌並增加丟棄事件的指標計數（dropped metrics），以避免阻塞寫入佇列（Write Queue）導致新事件無法接收。
 
 ### SSE 斷線重連
 

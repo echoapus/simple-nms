@@ -226,4 +226,3 @@ python3 main.py config.json
 | `ModuleNotFoundError: pysnmp` | Run `pip install pysnmp --break-system-packages` |
 | Events not appearing in UI | Check browser console for SSE errors; verify with `curl http://localhost/api/kpi` |
 | Database locked errors | Ensure WAL mode is enabled in config (`"wal_mode": true`) |
-| Fallback file created at `data/events_fallback.jsonl` | DB was temporarily unreachable; events saved to file — investigate disk space/permissions |

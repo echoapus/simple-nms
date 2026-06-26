@@ -40,13 +40,32 @@ def load_config(path: str = "config.json") -> dict:
 
 
 def main() -> None:
-    config_path = sys.argv[1] if len(sys.argv) > 1 else "config.json"
-    cfg = load_config(config_path)
+    import os
+    default_config_path = sys.argv[1] if len(sys.argv) > 1 else "config.json"
+    cfg = load_config(default_config_path)
+    config_path = default_config_path
 
     db_cfg = cfg.get("database", {})
     db_path = db_cfg.get("path", "data/events.db")
-    wal = db_cfg.get("wal_mode", True)
+    data_dir = os.path.dirname(db_path) or "data"
 
+    overlay_path = os.path.join(data_dir, "config.json")
+    if os.path.exists(overlay_path) and overlay_path != default_config_path:
+        logger.info("Found overlay configuration at %s, reloading...", overlay_path)
+        try:
+            cfg = load_config(overlay_path)
+            config_path = overlay_path
+            db_cfg = cfg.get("database", {})
+            db_path = db_cfg.get("path", db_path)
+            data_dir = os.path.dirname(db_path) or "data"
+        except Exception as e:
+            logger.error("Failed to load overlay config at %s: %s. Falling back to default.", overlay_path, e)
+
+    # Ensure data and mibs directories exist
+    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(os.path.join(data_dir, "mibs"), exist_ok=True)
+
+    wal = db_cfg.get("wal_mode", True)
     init_db(db_path, wal_mode=wal)
 
     # Central write queue
@@ -80,6 +99,7 @@ def main() -> None:
 
     # SNMP trap collector
     snmp_cfg = cfg.get("snmptrap", {})
+    tc = None
     if snmp_cfg.get("enabled", False):
         tc = SNMPTrapCollector(
             write_queue,
@@ -101,6 +121,8 @@ def main() -> None:
             db_path=db_path,
             write_queue=write_queue,
             db_writer=db_writer,
+            snmp_collector=tc,
+            config_path=config_path,
         )
         host = webhook_cfg.get("host", "0.0.0.0")
         port = webhook_cfg.get("port", 5000)

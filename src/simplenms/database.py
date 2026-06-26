@@ -166,16 +166,3 @@ class DBWriter(threading.Thread):
 
     def stop(self) -> None:
         self._stop_event.set()
-
-    def _dump_to_fallback(self, event: dict) -> None:
-        """Write a single event to a fallback JSONL file when DB is unreachable."""
-        import json as _json
-        fallback_path = os.path.join(os.path.dirname(self.db_path) or ".", "events_fallback.jsonl")
-        try:
-            evt = {k: v for k, v in event.items() if not k.startswith("_")}
-            with open(fallback_path, "a", encoding="utf-8") as f:
-                f.write(_json.dumps(evt, ensure_ascii=False) + "\n")
-            logger.warning("Event dumped to fallback file: %s", fallback_path)
-        except OSError:
-            logger.exception("Failed to write fallback file")
-

@@ -28,11 +28,21 @@ if ! id -u simplenms >/dev/null 2>&1; then
 fi
 
 echo "Extracting MIB files from mibs.tar.gz..."
-MIB_DIR="/usr/share/snmp/mibs"
+MIB_DIR="/opt/simple-nms/data/mibs"
 mkdir -p "$MIB_DIR"
 if [ -f "$PROJECT_ROOT/resources/mibs.tar.gz" ]; then
     tar -xzf "$PROJECT_ROOT/resources/mibs.tar.gz" --strip-components=1 -C "$MIB_DIR"
     echo "MIB files extracted to $MIB_DIR"
+    
+    # Ensure legacy SMIv1 dependency shims exist to prevent compilation errors for private MIBs
+    if [ ! -f "$MIB_DIR/RFC-1212.txt" ] && [ ! -f "$MIB_DIR/RFC-1212" ]; then
+        echo "Creating RFC-1212.txt shim..."
+        printf "RFC-1212 DEFINITIONS ::= BEGIN\nEND\n" > "$MIB_DIR/RFC-1212.txt"
+    fi
+    if [ ! -f "$MIB_DIR/RFC-1215.txt" ] && [ ! -f "$MIB_DIR/RFC-1215" ]; then
+        echo "Creating RFC-1215.txt shim..."
+        printf "RFC-1215 DEFINITIONS ::= BEGIN\nEND\n" > "$MIB_DIR/RFC-1215.txt"
+    fi
 else
     echo "Warning: mibs.tar.gz not found in resources directory. Skipping extraction."
 fi
@@ -51,17 +61,9 @@ else
     cp "$PROJECT_ROOT"/config.json /opt/simple-nms/
 fi
 
-# Prompt user for SNMP community
+# Configure default SNMP Trap community if not already set in config.json
 echo "Configuring SNMP Trap community..."
-if [ -t 0 ]; then
-    read -p "Enter SNMP community string for traps [simplenms]: " USER_COMMUNITY
-    USER_COMMUNITY=${USER_COMMUNITY:-simplenms}
-else
-    USER_COMMUNITY="simplenms"
-    echo "Non-interactive shell detected. Using default community: $USER_COMMUNITY"
-fi
-
-# Write community to config.json
+USER_COMMUNITY="simplenms"
 python3 -c "
 import json
 path = '/opt/simple-nms/config.json'
@@ -72,11 +74,11 @@ except Exception:
     data = {}
 if 'snmptrap' not in data:
     data['snmptrap'] = {}
-data['snmptrap']['community'] = '$USER_COMMUNITY'
+if 'community' not in data['snmptrap']:
+    data['snmptrap']['community'] = '$USER_COMMUNITY'
 with open(path, 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=4)
 "
-echo "SNMP community configured as: $USER_COMMUNITY"
 
 echo "Installing Python dependencies..."
 python3 -m venv /opt/simple-nms/venv
@@ -86,16 +88,30 @@ python3 -m venv /opt/simple-nms/venv
 test -f "$PROJECT_ROOT/deploy/simple-nms.service" || { echo "Error: deploy/simple-nms.service not found"; exit 1; }
 sed 's|/usr/bin/python3|/opt/simple-nms/venv/bin/python3|g' "$PROJECT_ROOT/deploy/simple-nms.service" > /etc/systemd/system/simple-nms.service
 
-chown -R simplenms:simplenms /opt/simple-nms
-chmod -R 750 /opt/simple-nms
-chmod -R 770 /opt/simple-nms/data
+chown root:root /etc/systemd/system/simple-nms.service
+chmod 644 /etc/systemd/system/simple-nms.service
+
+echo "Configuring secure permissions (least privilege)..."
+# 1. Base directory and code files owned by root, group simplenms
+chown -R root:simplenms /opt/simple-nms
+
+# 2. Set directories to 750 (rwxr-x---) and files to 640 (rw-r-----) for the code
+find /opt/simple-nms -type d -exec chmod 750 {} +
+find /opt/simple-nms -type f -exec chmod 640 {} +
+
+# 3. Ensure entrypoints and venv binaries are executable by the group
+chmod 750 /opt/simple-nms/main.py /opt/simple-nms/cleanup.py
+find /opt/simple-nms/venv/bin -type f -exec chmod 750 {} +
+
+# 4. Make the persistent data directory fully owned and writable by the simplenms user
+chown -R simplenms:simplenms /opt/simple-nms/data
+find /opt/simple-nms/data -type d -exec chmod 770 {} +
+find /opt/simple-nms/data -type f -exec chmod 660 {} +
 
 # Detect port conflicts before starting the service
 echo "Checking for port conflicts..."
 CFG_FILE="/opt/simple-nms/config.json"
-WEB_PORT=$(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); print(cfg.get('webhook', {}).get('port', 80))" 2>/dev/null || echo 80)
-SYSLOG_PORT=$(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); print(cfg.get('syslog', {}).get('port', 514))" 2>/dev/null || echo 514)
-SNMP_PORT=$(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); print(cfg.get('snmptrap', {}).get('port', 162))" 2>/dev/null || echo 162)
+read -r WEB_PORT SYSLOG_PORT SNMP_PORT < <(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); print(cfg.get('webhook', {}).get('port', 80), cfg.get('syslog', {}).get('port', 514), cfg.get('snmptrap', {}).get('port', 162))" 2>/dev/null || echo "80 514 162")
 
 if command -v ss >/dev/null 2>&1; then
     if ss -tln | grep -q ":$WEB_PORT "; then
@@ -128,6 +144,6 @@ echo "👉 View Logs:        journalctl -u simple-nms -f"
 echo "------------------------------------------------------------------"
 echo "💡 Custom MIBs Guide:"
 echo "   Place your custom MIB files (.txt/.mib/.my) in:"
-echo "   /usr/share/snmp/mibs"
+echo "   /opt/simple-nms/data/mibs"
 echo "   Then restart the service to apply: sudo systemctl restart simple-nms"
 echo "=================================================================="

@@ -215,6 +215,126 @@ def test_api_cors():
     w.stop(); w.join(timeout=2)
 
 
+def test_config_and_mibs():
+    print("\n=== Config and MIBs API (Overlay) ===")
+    import shutil
+    
+    # Setup temporary config.json
+    test_dir = "/tmp/snms_test_p3_config"
+    if os.path.exists(test_dir):
+        shutil.rmtree(test_dir)
+    os.makedirs(test_dir)
+    
+    default_cfg_path = os.path.join(test_dir, "config.json")
+    default_cfg = {
+        "database": {
+            "path": os.path.join(test_dir, "events.db"),
+            "wal_mode": True
+        },
+        "snmptrap": {
+            "enabled": True,
+            "community": "initial_community",
+            "mib_dirs": [os.path.join(test_dir, "mibs_readonly"), "/usr/share/snmp/mibs"]
+        },
+        "webhook": {
+            "enabled": True,
+            "port": 80
+        }
+    }
+    with open(default_cfg_path, "w") as f:
+        json.dump(default_cfg, f)
+        
+    # Also create the read-only directory
+    os.makedirs(os.path.join(test_dir, "mibs_readonly"))
+    # Make it read-only (mimicking the production environment)
+    os.chmod(os.path.join(test_dir, "mibs_readonly"), 0o555)
+    
+    init_db(default_cfg["database"]["path"], wal_mode=True)
+    wq = queue.Queue()
+    w = DBWriter(default_cfg["database"]["path"], wq, batch_size=10, flush_interval=0.1)
+    w.start()
+    
+    class FakeCollector:
+        def __init__(self):
+            self.community = "initial_community"
+        def update_community(self, comm):
+            self.community = comm
+            
+    fake_collector = FakeCollector()
+    
+    app = create_app(
+        db_path=default_cfg["database"]["path"],
+        write_queue=wq,
+        db_writer=w,
+        snmp_collector=fake_collector,
+        config_path=default_cfg_path
+    )
+    c = app.test_client()
+    
+    # 1. GET /api/config
+    r = c.get("/api/config")
+    check("GET config returns 200", r.status_code == 200)
+    data = r.get_json()
+    check("GET config returns initial community", data["community"] == "initial_community")
+    check("GET config returns default webhook port", data["webhook_port"] == 80)
+    
+    # 2. POST /api/config to update settings (this must write to overlay)
+    r = c.post("/api/config", data=json.dumps({
+        "community": "updated_community",
+        "webhook_port": 8080
+    }), content_type="application/json")
+    check("POST config returns 200", r.status_code == 200)
+    data = r.get_json()
+    check("POST config returns updated community", data["community"] == "updated_community")
+    check("POST config returns updated webhook port", data["webhook_port"] == 8080)
+    check("Collector community dynamically updated", fake_collector.community == "updated_community")
+    
+    # Verify overlay config file was created in data directory (which is test_dir)
+    overlay_path = os.path.join(test_dir, "config.json")
+    check("Overlay config file exists", os.path.exists(overlay_path))
+    with open(overlay_path) as f:
+        overlay_data = json.load(f)
+    check("Overlay config has updated community", overlay_data["snmptrap"]["community"] == "updated_community")
+    check("Overlay config has updated webhook port", overlay_data["webhook"]["port"] == 8080)
+    
+    # 3. GET /api/config should now load from overlay
+    r = c.get("/api/config")
+    check("GET config after update returns 200", r.status_code == 200)
+    data = r.get_json()
+    check("GET config returns updated community", data["community"] == "updated_community")
+    check("GET config returns updated webhook port", data["webhook_port"] == 8080)
+    
+    # 4. POST /api/mibs: Upload a valid MIB file.
+    # Since mibs_readonly is read-only, it should automatically fall back to the writable test_dir/mibs!
+    from io import BytesIO
+    mib_content = b"MY-TEST-MIB DEFINITIONS ::= BEGIN\nEND\n"
+    r = c.post("/api/mibs", data={
+        "file": (BytesIO(mib_content), "MY-TEST-MIB.my")
+    }, content_type="multipart/form-data")
+    check("Upload MIB returns 201", r.status_code == 201)
+    
+    # Verify file was saved in the writable data MIB directory (test_dir/mibs)
+    writable_mib_dir = os.path.join(test_dir, "mibs")
+    check("Writable MIB directory was created", os.path.exists(writable_mib_dir))
+    check("MIB file was saved in writable directory", os.path.exists(os.path.join(writable_mib_dir, "MY-TEST-MIB.my")))
+    
+    # 5. GET /api/mibs to list MIBs
+    r = c.get("/api/mibs")
+    check("GET mibs returns 200", r.status_code == 200)
+    mibs_list = r.get_json()
+    check("Uploaded MIB is in the list", any(m["filename"] == "MY-TEST-MIB.my" for m in mibs_list))
+    
+    # 6. DELETE /api/mibs/<filename>
+    r = c.delete("/api/mibs/MY-TEST-MIB.my")
+    check("DELETE MIB returns 200", r.status_code == 200)
+    check("MIB file was deleted", not os.path.exists(os.path.join(writable_mib_dir, "MY-TEST-MIB.my")))
+    
+    # Cleanup
+    os.chmod(os.path.join(test_dir, "mibs_readonly"), 0o777) # restore permission for clean deletion
+    w.stop(); w.join(timeout=2)
+    shutil.rmtree(test_dir)
+
+
 if __name__ == "__main__":
     raise SystemExit(run_suite("Simple NMS -- Phase 3 Validation Suite", [
         test_static_serving,
@@ -222,4 +342,5 @@ if __name__ == "__main__":
         test_css_features,
         test_js_features,
         test_api_cors,
+        test_config_and_mibs,
     ]))

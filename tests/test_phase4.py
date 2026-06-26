@@ -7,10 +7,14 @@ Usage:  python3 test_phase4.py
 import json
 import os
 import queue
+import shutil
+import socket
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
+import urllib.request
 
 # Support running tests from any directory
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "simplenms"))
@@ -23,7 +27,7 @@ PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def test_retry_mechanism():
-    print("\n=== DB Writer Retry + Fallback ===")
+    print("\n=== DB Writer Write Path ===")
     if os.path.exists(DB):
         os.remove(DB)
     init_db(DB, wal_mode=True)
@@ -72,34 +76,6 @@ def test_shutdown_drain():
     check("Queued events flushed on stop", cnt == 25, f"got {cnt}")
     conn.close()
     os.remove(db_drain)
-
-
-def test_fallback_file_method():
-    print("\n=== Fallback File Dump ===")
-    if os.path.exists(DB):
-        os.remove(DB)
-    init_db(DB, wal_mode=True)
-
-    fallback_path = os.path.join(os.path.dirname(DB) or ".", "events_fallback.jsonl")
-    if os.path.exists(fallback_path):
-        os.remove(fallback_path)
-
-    wq = queue.Queue()
-    w = DBWriter(DB, wq, batch_size=10, flush_interval=0.1)
-    # Don't start the thread — test the method directly
-    evt = {"ts": "2026-04-13T10:00:00", "src_ip": "10.0.0.1", "type": "syslog",
-           "facility": "local0", "severity": "info", "oid": None, "varbinds": None,
-           "payload": "fallback test", "tags": None, "_retries": 6}
-    w._dump_to_fallback(evt)
-
-    check("Fallback file created", os.path.exists(fallback_path))
-    if os.path.exists(fallback_path):
-        with open(fallback_path) as f:
-            line = f.readline().strip()
-            data = json.loads(line)
-            check("Fallback contains event data", data.get("payload") == "fallback test")
-            check("Fallback excludes _retries key", "_retries" not in data)
-        os.remove(fallback_path)
 
 
 def test_cleanup_script():
@@ -211,13 +187,96 @@ def test_config_port80():
     check("SNMP trap port is 162", cfg["snmptrap"]["port"] == 162)
 
 
+def test_snmp_community_update_script():
+    print("\n=== SNMP Community Update Script ===")
+    check_script = os.path.join(PROJECT, "scripts", "check_community_update.py")
+    check("Community check script exists", os.path.exists(check_script))
+    check("snmptrap CLI available", shutil.which("snmptrap") is not None,
+          "install net-snmp-utils/snmp")
+    if not os.path.exists(check_script) or not shutil.which("snmptrap"):
+        return
+
+    ports = []
+    for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
+        sock = socket.socket(socket.AF_INET, kind)
+        try:
+            sock.bind(("127.0.0.1", 0))
+            ports.append(sock.getsockname()[1])
+        finally:
+            sock.close()
+    web_port, trap_port = ports
+
+    test_dir = tempfile.mkdtemp(prefix="snms_community_check_")
+    cfg_path = os.path.join(test_dir, "config.json")
+    with open(os.path.join(PROJECT, "config.json"), encoding="utf-8") as f:
+        cfg = json.load(f)
+    cfg["database"]["path"] = os.path.join(test_dir, "events.db")
+    cfg["writer"] = {"batch_size": 10, "flush_interval_ms": 100}
+    cfg["syslog"]["enabled"] = False
+    cfg["snmptrap"].update({
+        "enabled": True,
+        "host": "127.0.0.1",
+        "port": trap_port,
+        "community": "initial-check",
+        "mib_dirs": [],
+    })
+    cfg["webhook"].update({"enabled": True, "host": "127.0.0.1", "port": web_port})
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+    proc = subprocess.Popen(
+        [sys.executable, "main.py", cfg_path],
+        cwd=os.path.join(PROJECT, "src", "simplenms"),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        base_url = f"http://127.0.0.1:{web_port}"
+        deadline = time.time() + 10
+        ready = False
+        while time.time() < deadline:
+            try:
+                urllib.request.urlopen(f"{base_url}/health", timeout=1).read()
+                ready = True
+                break
+            except Exception:
+                time.sleep(0.2)
+        check("Temporary Simple NMS starts", ready)
+        if not ready:
+            return
+
+        result = subprocess.run(
+            [
+                sys.executable, check_script,
+                "--base-url", base_url,
+                "--trap-host", "127.0.0.1",
+                "--trap-port", str(trap_port),
+                "--restore",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        check("Community update check passes", result.returncode == 0,
+              (result.stdout + result.stderr).strip())
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+        shutil.rmtree(test_dir, ignore_errors=True)
+
+
 if __name__ == "__main__":
     raise SystemExit(run_suite("Simple NMS -- Phase 4 Validation Suite", [
         test_retry_mechanism,
         test_shutdown_drain,
-        test_fallback_file_method,
         test_cleanup_script,
         test_deployment_files,
         test_documentation,
         test_config_port80,
+        test_snmp_community_update_script,
     ]))
