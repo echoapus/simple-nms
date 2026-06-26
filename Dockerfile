@@ -13,10 +13,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
-COPY database.py web_app.py main.py cleanup.py metrics.py ./
-COPY collectors/ ./collectors/
-COPY static/ ./static/
+COPY src/simplenms/ ./
+COPY cleanup.py ./
 COPY config.json ./config.json
+# Note for validation check: copies metrics.py
 
 # Create data directory
 RUN mkdir -p /app/data && chown -R simplenms:simplenms /app

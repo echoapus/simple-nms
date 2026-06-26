@@ -13,7 +13,7 @@ import sqlite3
 import time
 
 # Support running tests from any directory
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "simplenms"))
 
 from database import init_db, DBWriter
 from collectors.syslog_listener import _parse_syslog
