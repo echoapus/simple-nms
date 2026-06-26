@@ -21,14 +21,22 @@ if [ -t 0 ]; then
     fi
 fi
 
+# Configure package manager options if proxy is set to override any system-wide defaults
+APT_OPTS=""
+DNF_OPTS=""
+if [ -n "$http_proxy" ]; then
+    APT_OPTS="-o Acquire::http::Proxy=$http_proxy -o Acquire::https::Proxy=$https_proxy"
+    DNF_OPTS="--setopt=proxy=$http_proxy"
+fi
+
 echo "Installing system prerequisites..."
 if [ -f /etc/debian_version ]; then
-    apt-get update
-    apt-get install -y python3 python3-pip python3-venv sqlite3
+    apt-get $APT_OPTS update
+    apt-get $APT_OPTS install -y python3 python3-pip python3-venv sqlite3
     # Attempt to install snmp-mibs-downloader (requires non-free/multiverse on some systems)
-    apt-get install -y snmp-mibs-downloader || echo "Warning: snmp-mibs-downloader package not available or failed to install"
+    apt-get $APT_OPTS install -y snmp-mibs-downloader || echo "Warning: snmp-mibs-downloader package not available or failed to install"
 elif [ -f /etc/redhat-release ]; then
-    dnf install -y python3 python3-pip sqlite net-snmp
+    dnf $DNF_OPTS install -y python3 python3-pip sqlite net-snmp
 else
     echo "Warning: unknown distribution; python3, pip, and venv must already be installed"
 fi
