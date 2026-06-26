@@ -6,37 +6,14 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Ask if HTTP proxy is needed
-if [ -t 0 ]; then
-    read -p "Do you need to use an HTTP proxy for internet access? [y/N]: " USE_PROXY
-    if [[ "$USE_PROXY" =~ ^[Yy]$ ]]; then
-        read -p "Enter proxy URL (e.g., http://10.0.0.1:8080): " PROXY_URL
-        if [ -n "$PROXY_URL" ]; then
-            export http_proxy="$PROXY_URL"
-            export https_proxy="$PROXY_URL"
-            export HTTP_PROXY="$PROXY_URL"
-            export HTTPS_PROXY="$PROXY_URL"
-            echo "HTTP proxy configured: $PROXY_URL"
-        fi
-    fi
-fi
-
-# Configure package manager options if proxy is set to override any system-wide defaults
-APT_OPTS=""
-DNF_OPTS=""
-if [ -n "$http_proxy" ]; then
-    APT_OPTS="-o Acquire::http::Proxy=$http_proxy -o Acquire::https::Proxy=$https_proxy"
-    DNF_OPTS="--setopt=proxy=$http_proxy"
-fi
-
 echo "Installing system prerequisites..."
 if [ -f /etc/debian_version ]; then
-    apt-get $APT_OPTS update
-    apt-get $APT_OPTS install -y python3 python3-pip python3-venv sqlite3
+    apt-get update
+    apt-get install -y python3 python3-pip python3-venv sqlite3
     # Attempt to install snmp-mibs-downloader (requires non-free/multiverse on some systems)
-    apt-get $APT_OPTS install -y snmp-mibs-downloader || echo "Warning: snmp-mibs-downloader package not available or failed to install"
+    apt-get install -y snmp-mibs-downloader || echo "Warning: snmp-mibs-downloader package not available or failed to install"
 elif [ -f /etc/redhat-release ]; then
-    dnf $DNF_OPTS install -y python3 python3-pip sqlite net-snmp
+    dnf install -y python3 python3-pip sqlite net-snmp
 else
     echo "Warning: unknown distribution; python3, pip, and venv must already be installed"
 fi
