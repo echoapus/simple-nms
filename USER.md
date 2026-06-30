@@ -41,7 +41,7 @@ print('Sent RFC 5424 syslog message')
 
 ### SNMP Trap
 
-Using `snmptrap` (install: `sudo apt install snmp`):
+Using `snmptrap` (install: `sudo apt install snmp` on Debian/Ubuntu or `sudo dnf install net-snmp-utils` on RHEL/CentOS):
 
 ```bash
 # SNMPv2c linkDown trap
@@ -53,6 +53,12 @@ snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
 snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
     1.3.6.1.4.1.99999 \
     1.3.6.1.4.1.99999.1 s "CPU utilization 95%"
+```
+
+To verify that changing the SNMP community in the Web UI takes effect without restarting Simple NMS:
+
+```bash
+./scripts/check_community_update.py --base-url http://127.0.0.1 --trap-host 127.0.0.1 --trap-port 162 --restore
 ```
 
 ### Webhook
@@ -89,7 +95,7 @@ Four cards at the top show total event counts, broken down by type (Syslog / SNM
 ### Event Table
 
 Displays the most recent events with columns:
-- **Time** — UTC timestamp
+- **Time** — local browser time; open the detail modal to see the UTC value
 - **Source IP** — origin address of the event
 - **Type** — color-coded badge (blue=syslog, amber=snmptrap, green=webhook)
 - **Severity** — dot indicator with color (green=info, yellow=warning, orange=err, red=crit)
@@ -172,6 +178,10 @@ Parameters:
 |-----------|------|-------------|
 | `time_from` | string | ISO 8601 timestamp |
 | `time_to` | string | ISO 8601 timestamp |
+| `type` | string | Comma-separated: `syslog`, `snmptrap`, `webhook` |
+| `src_ip` | string | Source IP prefix match |
+| `severity` | string | Comma-separated severity names |
+| `q` | string | Search across payload, src_ip, facility, severity, oid, tags |
 
 Response:
 
@@ -248,7 +258,7 @@ Health check endpoint.
 
 ```bash
 curl http://localhost/health
-# {"status": "healthy", "sse_clients": 2}
+# {"status":"healthy","queue":{"size":0,"max_size":50000},"sse_clients":2,"metrics":{"dropped_events":{...}},"db_writer":{...}}
 ```
 
 ### POST /api/events/cleanup
@@ -265,7 +275,15 @@ curl -X POST http://localhost/api/events/cleanup \
 
 ## Data Retention
 
-Use the cleanup script to purge old events:
+Use **Clear Old Events** in the Web UI, or call the cleanup API directly:
+
+```bash
+curl -X POST http://localhost/api/events/cleanup \
+  -H "Content-Type: application/json" \
+  -d '{"before_ts":"2026-01-01T00:00:00.000"}'
+```
+
+For cron or one-off local maintenance, use the bundled cleanup script:
 
 ```bash
 # Preview what would be deleted

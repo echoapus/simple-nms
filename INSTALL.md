@@ -4,47 +4,41 @@
 
 - **Python 3.9+** (Debian 12 ships with 3.11)
 - **pip** (Python package manager)
+- **snmptrap** for local SNMP testing (`snmp` on Debian/Ubuntu, `net-snmp-utils` on RHEL/CentOS)
 - No external database, web server, or message broker required
 
 ## Option A: Bare-Metal Install (Debian 12 / Ubuntu 22.04)
 
-### 1. Create a dedicated user
+### 1. Run the installer
+
+```bash
+sudo ./scripts/install.sh
+```
+
+The installer creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, extracts bundled MIB files, installs the systemd unit, and starts the service.
+
+### 2. Manual install
 
 ```bash
 sudo useradd -r -m -d /opt/simple-nms -s /usr/sbin/nologin simplenms
-```
-
-### 2. Deploy the application
-
-```bash
-sudo mkdir -p /opt/simple-nms
-sudo cp -r ./* /opt/simple-nms/
-sudo chown -R simplenms:simplenms /opt/simple-nms
-```
-
-### 3. Install Python dependencies
-
-```bash
-cd /opt/simple-nms
-sudo -u simplenms pip install --user -r requirements.txt
-```
-
-Or system-wide:
-
-```bash
-sudo pip install -r requirements.txt --break-system-packages
+sudo mkdir -p /opt/simple-nms/data
+sudo cp -r src/simplenms/* cleanup.py requirements.txt config.json /opt/simple-nms/
+sudo python3 -m venv /opt/simple-nms/venv
+sudo /opt/simple-nms/venv/bin/pip install -r /opt/simple-nms/requirements.txt
+sudo chown -R root:simplenms /opt/simple-nms
+sudo chown -R simplenms:simplenms /opt/simple-nms/data
 ```
 
 Dependencies installed:
 | Package | Purpose |
 |---------|---------|
-| `flask` | Web server (API + Webhook + UI) |
-| `werkzeug` | WSGI server (Flask dependency) |
+| `flask` | Web server, API, webhook, UI, and WSGI stack |
 | `pysnmp` | SNMP Trap receiver |
+| `pysmi` | ASN.1 MIB compiler used by pysnmp |
 
 Standard library (no install needed): `sqlite3`, `socket`, `queue`, `threading`, `json`.
 
-### 4. Configure
+### 3. Configure
 
 Edit `/opt/simple-nms/config.json`:
 
@@ -66,7 +60,9 @@ Edit `/opt/simple-nms/config.json`:
     "snmptrap": {
         "enabled": true,
         "host": "0.0.0.0",
-        "port": 162
+        "port": 162,
+        "community": "simplenms",
+        "mib_dirs": ["/opt/simple-nms/data/mibs", "/usr/share/snmp/mibs"]
     },
     "webhook": {
         "enabled": true,
@@ -86,13 +82,13 @@ If Simple NMS is behind HAProxy on the same host, bind the web server to loopbac
     }
 ```
 
-### 5. Create data directory
+### 4. Create data directory
 
 ```bash
 sudo -u simplenms mkdir -p /opt/simple-nms/data
 ```
 
-### 6. Install systemd service
+### 5. Install systemd service
 
 ```bash
 sudo cp deploy/simple-nms.service /etc/systemd/system/
@@ -103,7 +99,7 @@ sudo systemctl start simple-nms
 
 The systemd unit uses `AmbientCapabilities=CAP_NET_BIND_SERVICE` so the service can bind to ports 80, 162, and 514 without running as root.
 
-### 7. Verify
+### 6. Verify
 
 ```bash
 # Check service status
@@ -114,13 +110,24 @@ sudo journalctl -u simple-nms -f
 
 # Test web UI
 curl -s http://localhost/health
+
+# Verify Web UI community updates reach the running SNMP trap listener
+./scripts/check_community_update.py --base-url http://127.0.0.1 --trap-host 127.0.0.1 --trap-port 162 --restore
 ```
 
 Open `http://your-server` in a browser to see the dashboard.
 
-### 8. Data retention (optional)
+### 7. Data retention (optional)
 
-Set up a daily cron job to purge old events:
+For manual cleanup, use **Clear Old Events** in the Web UI or call the API:
+
+```bash
+curl -X POST http://localhost/api/events/cleanup \
+  -H "Content-Type: application/json" \
+  -d '{"before_ts":"2026-01-01T00:00:00"}'
+```
+
+For unattended local cleanup, set up a daily cron job:
 
 ```bash
 sudo crontab -u simplenms -e
@@ -132,7 +139,7 @@ Add:
 0 3 * * * cd /opt/simple-nms && python3 cleanup.py --days 30 >> /var/log/simple-nms-cleanup.log 2>&1
 ```
 
-### 9. Firewall
+### 8. Firewall
 
 If using UFW:
 
@@ -149,7 +156,7 @@ sudo ufw allow from 10.0.0.0/8 to any port 514 proto udp
 sudo ufw allow from 10.0.0.0/8 to any port 162 proto udp
 ```
 
-### 10. Local HAProxy reverse proxy (optional)
+### 9. Local HAProxy reverse proxy (optional)
 
 When HAProxy runs on the same host, expose HAProxy on port 80/443 and forward to the loopback Simple NMS backend:
 
@@ -201,6 +208,12 @@ docker cp simple-nms:/app/data/events.db.bak ./backup/
 ### 4. Data retention in Docker
 
 ```bash
+# API cleanup from the host
+curl -X POST http://localhost/api/events/cleanup \
+  -H "Content-Type: application/json" \
+  -d '{"before_ts":"2026-01-01T00:00:00"}'
+
+# Or run the bundled CLI inside the container
 docker compose exec simple-nms python3 cleanup.py --days 30
 ```
 
@@ -212,7 +225,8 @@ For testing on non-privileged ports without root:
 
 ```bash
 # Edit config.json: set ports to 8080 (webhook), 5514 (syslog), 1162 (snmptrap)
-python3 main.py config.json
+cd src/simplenms
+python3 main.py ../../config.json
 ```
 
 ---
@@ -224,5 +238,6 @@ python3 main.py config.json
 | `Permission denied` on port 80/514/162 | Use systemd service (has `AmbientCapabilities`), or run `sudo setcap cap_net_bind_service=+ep $(which python3)` |
 | `Address already in use` on port 80 | Stop nginx/apache: `sudo systemctl stop nginx` |
 | `ModuleNotFoundError: pysnmp` | Run `pip install pysnmp --break-system-packages` |
+| Community change in Web UI does not affect traps | Run `scripts/check_community_update.py`; verify the service is running current code and `snmptrap` is installed |
 | Events not appearing in UI | Check browser console for SSE errors; verify with `curl http://localhost/api/kpi` |
 | Database locked errors | Ensure WAL mode is enabled in config (`"wal_mode": true`) |

@@ -19,24 +19,33 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
   - Dark/light theme toggle
   - Responsive layout (mobile-friendly)
   - Server-Sent Events (SSE) for live updates
+  - Settings page for SNMP community updates and custom MIB uploads
 - **Single Python process** — no external web server, message broker, or database server required
 - **Reliability** — write failures are logged and tracked via dropped metrics
 - **Reverse-proxy aware webhooks** — direct clients use the socket peer IP; requests forwarded by a local proxy can use `X-Forwarded-For` / `X-Real-IP` for the original client IP
+- **Runtime SNMP community updates** — Web UI config changes update the running SNMP trap listener without restarting the service
 
 ## Quick Start
 
 ```bash
-# Install dependencies
+# Install dependencies for local development
 pip install -r requirements.txt
 
-# Start (uses config.json in current directory)
-sudo python3 main.py
+# Start on privileged ports (uses config.json from repo root)
+cd src/simplenms
+sudo python3 main.py ../../config.json
 
 # Or with a custom config
 sudo python3 main.py /path/to/config.json
 ```
 
 Open `http://your-server` in a browser.
+
+For a system install with virtualenv, permissions, MIB files, and systemd service setup:
+
+```bash
+sudo ./scripts/install.sh
+```
 
 ## Reverse Proxy / HAProxy
 
@@ -91,6 +100,28 @@ Forwarded client IP headers are trusted only when the immediate peer is loopback
 - [INSTALL.md](INSTALL.md) — Installation and deployment guide
 - [USER.md](USER.md) — Usage guide with test examples
 - [README.zh-TW.md](README.zh-TW.md) — Traditional Chinese project overview
+
+## Operations
+
+- Use the Web UI **Clear Old Events** action or `POST /api/events/cleanup` for retention cleanup.
+- Use `cleanup.py` only when a local cron or container job is simpler than calling the API.
+- Use the Settings tab or `POST /api/config` to update the SNMP community at runtime.
+- Upload custom MIB files from the Settings tab, or place them in a configured `snmptrap.mib_dirs` directory before restart.
+
+## Tests
+
+```bash
+python3 tests/test_phase1.py
+python3 tests/test_phase2.py
+python3 tests/test_phase3.py
+python3 tests/test_phase4.py
+```
+
+The SNMP community hot-update check can also be run against a live service:
+
+```bash
+./scripts/check_community_update.py --base-url http://127.0.0.1 --trap-host 127.0.0.1 --trap-port 162 --restore
+```
 
 ## License
 
