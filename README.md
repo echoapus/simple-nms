@@ -125,4 +125,7 @@ The SNMP community hot-update check can also be run against a live service:
 
 ## License
 
-MIT
+PolyForm Noncommercial License 1.0.0.
+
+Commercial use, resale, or enterprise redistribution requires a separate
+commercial license from the maintainer.
