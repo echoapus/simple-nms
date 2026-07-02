@@ -11,92 +11,92 @@
    CSS Variables — Light & Dark themes
    ================================================================ */
 :root {
-  --bg-primary: #f0f1f5;
+  --bg-primary: #f8fafc;
   --bg-secondary: #ffffff;
-  --bg-sidebar: #f7f8fa;
+  --bg-sidebar: #f1f5f9;
   --bg-card: #ffffff;
-  --bg-table-header: #e8eaef;
-  --bg-table-row-hover: #f0f2f7;
-  --bg-table-row-alt: #fafafc;
+  --bg-table-header: #f8fafc;
+  --bg-table-row-hover: #f1f5f9;
+  --bg-table-row-alt: #fafbfc;
   --bg-input: #ffffff;
-  --bg-badge-syslog: #dbeafe;
+  --bg-badge-syslog: #e0f2fe;
   --bg-badge-snmptrap: #fef3c7;
-  --bg-badge-webhook: #d1fae5;
-  --bg-toast: #1e293b;
+  --bg-badge-webhook: #dcfce7;
+  --bg-toast: #0f172a;
 
-  --border-primary: #d1d5db;
-  --border-input: #cbd5e1;
-  --border-card: #e2e5ea;
+  --border-primary: #f1f5f9;
+  --border-input: #e2e8f0;
+  --border-card: #f1f5f9;
 
-  --text-primary: #1e293b;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --text-badge-syslog: #1e40af;
-  --text-badge-snmptrap: #92400e;
-  --text-badge-webhook: #065f46;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-badge-syslog: #0369a1;
+  --text-badge-snmptrap: #b45309;
+  --text-badge-webhook: #15803d;
 
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --accent-subtle: #eff6ff;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-subtle: #e0e7ff;
 
-  --severity-emerg:   #991b1b;
-  --severity-alert:   #dc2626;
-  --severity-crit:    #ef4444;
+  --severity-emerg:   #e11d48;
+  --severity-alert:   #f43f5e;
+  --severity-crit:    #ff4d4d;
   --severity-err:     #f97316;
   --severity-warning: #eab308;
-  --severity-notice:  #3b82f6;
-  --severity-info:    #22c55e;
-  --severity-debug:   #94a3b8;
+  --severity-notice:  #06b6d4;
+  --severity-info:    #10b981;
+  --severity-debug:   #64748b;
 
   --kpi-total: #6366f1;
-  --kpi-syslog: #3b82f6;
+  --kpi-syslog: #0ea5e9;
   --kpi-snmptrap: #f59e0b;
   --kpi-webhook: #10b981;
 
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
-  --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.1);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.02);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.04);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.06);
 
-  --radius: 6px;
-  --radius-lg: 10px;
-  --transition: 0.2s ease;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 
   --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
 }
 
 body.dark {
-  --bg-primary: #0f1219;
-  --bg-secondary: #1a1f2e;
-  --bg-sidebar: #141825;
-  --bg-card: #1e2436;
-  --bg-table-header: #252d40;
-  --bg-table-row-hover: #252d40;
-  --bg-table-row-alt: #1a2030;
-  --bg-input: #1a2030;
-  --bg-badge-syslog: #1e3a5f;
-  --bg-badge-snmptrap: #422006;
+  --bg-primary: #090d16;
+  --bg-secondary: #111827;
+  --bg-sidebar: #0f172a;
+  --bg-card: #1e293b;
+  --bg-table-header: #1e293b;
+  --bg-table-row-hover: #334155;
+  --bg-table-row-alt: #111827;
+  --bg-input: #1e293b;
+  --bg-badge-syslog: #1e3a8a;
+  --bg-badge-snmptrap: #78350f;
   --bg-badge-webhook: #064e3b;
-  --bg-toast: #334155;
+  --bg-toast: #1e293b;
 
-  --border-primary: #2d3548;
-  --border-input: #374151;
-  --border-card: #2d3548;
+  --border-primary: #1e293b;
+  --border-input: #334155;
+  --border-card: #1e293b;
 
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
   --text-muted: #64748b;
-  --text-badge-syslog: #93c5fd;
-  --text-badge-snmptrap: #fcd34d;
-  --text-badge-webhook: #6ee7b7;
+  --text-badge-syslog: #38bdf8;
+  --text-badge-snmptrap: #fbbf24;
+  --text-badge-webhook: #34d399;
 
-  --accent: #60a5fa;
-  --accent-hover: #3b82f6;
-  --accent-subtle: #1e3a5f;
+  --accent: #818cf8;
+  --accent-hover: #6366f1;
+  --accent-subtle: #312e81;
 
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
-  --shadow-md: 0 2px 8px rgba(0,0,0,0.4);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
 }
 
 /* ================================================================

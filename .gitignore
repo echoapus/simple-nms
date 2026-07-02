@@ -1,12 +1,32 @@
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-data/*.db
-data/*.db-wal
-data/*.db-shm
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+events_fallback.jsonl
+
+*.log
+*.pid
+*.tmp
+tmp/
+dist/
+build/
+*.egg-info/
 
 .venv/
 venv/
 env/
 .env
+
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
