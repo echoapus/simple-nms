@@ -23,8 +23,8 @@ from mibs import (
     ensure_module_symlink,
     first_writable_dir,
     list_mib_files,
-    parse_module_name,
     parse_module_name_from_lines,
+    remove_module_symlinks,
 )
 from metrics import runtime_metrics
 
@@ -178,6 +178,17 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
         if db is not None:
             db.close()
 
+    def event_type_counts(where: str, params: list) -> tuple[int, dict]:
+        db = get_db()
+        total = db.execute(f"SELECT COUNT(*) FROM events {where}", params).fetchone()[0]
+        rows = db.execute(
+            f"SELECT type, COUNT(*) as count FROM events {where} GROUP BY type", params
+        ).fetchall()
+        counts = {r["type"]: r["count"] for r in rows}
+        for event_type in ("syslog", "snmptrap", "webhook"):
+            counts.setdefault(event_type, 0)
+        return total, counts
+
     # ------------------------------------------------------------------
     # Webhook endpoint (from Phase 1)
     # ------------------------------------------------------------------
@@ -293,17 +304,9 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
     # ------------------------------------------------------------------
     @app.route("/api/kpi", methods=["GET"])
     def api_kpi():
-        db = get_db()
         conditions, params = _build_where(request.args)
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-
-        total = db.execute(f"SELECT COUNT(*) FROM events {where}", params).fetchone()[0]
-        rows = db.execute(
-            f"SELECT type, COUNT(*) as count FROM events {where} GROUP BY type", params
-        ).fetchall()
-        counts = {r["type"]: r["count"] for r in rows}
-        for t in ("syslog", "snmptrap", "webhook"):
-            counts.setdefault(t, 0)
+        total, counts = event_type_counts(where, params)
         return jsonify({"total": total, **counts})
 
     # ------------------------------------------------------------------
@@ -315,12 +318,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
         conditions, params = _build_where(request.args)
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-        type_rows = db.execute(
-            f"SELECT type, COUNT(*) as count FROM events {where} GROUP BY type", params
-        ).fetchall()
-        types_res = {r["type"]: r["count"] for r in type_rows}
-        for t in ("syslog", "snmptrap", "webhook"):
-            types_res.setdefault(t, 0)
+        _, types_res = event_type_counts(where, params)
 
         sev_rows = db.execute(
             f"SELECT severity, COUNT(*) as count FROM events {where} GROUP BY severity", params
@@ -581,16 +579,8 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             return jsonify({"error": "MIB file not found"}), 404
             
         try:
-            real_name = parse_module_name(path)
-                 
             os.remove(path)
-            
-            if real_name:
-                _, ext = os.path.splitext(filename)
-                link_name = f"{real_name}{ext}"
-                link_path = os.path.join(save_dir, link_name)
-                if os.path.islink(link_path):
-                     os.remove(link_path)
+            remove_module_symlinks(save_dir, filename)
         except Exception as e:
             return jsonify({"error": f"Failed to delete MIB file: {e}"}), 500
              

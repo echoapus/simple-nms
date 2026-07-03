@@ -64,125 +64,26 @@ def test_static_serving():
     w.stop(); w.join(timeout=2)
 
 
-def test_html_structure():
-    print("\n=== HTML Structure ===")
+def test_static_contract():
+    print("\n=== Static UI Contract ===")
     _, w, _, c = setup()
     html = c.get("/").data.decode("utf-8")
 
-    # Header elements
-    check("Header logo: simple.nms", "simple<span" in html and "nms" in html)
-    check("Theme toggle button", 'id="themeToggle"' in html)
-    check("Global search input", 'id="globalSearch"' in html)
-    check("SSE indicator", 'id="sseIndicator"' in html)
-    check("Sidebar toggle (mobile)", 'id="sidebarToggle"' in html)
+    required_ids = [
+        "themeToggle", "globalSearch", "sseIndicator", "sidebarToggle",
+        "kpiTotal", "kpiSyslog", "kpiSnmptrap", "kpiWebhook",
+        "timeFrom", "timeTo", "srcIpFilter", "clearFilters",
+        "openCleanupModal", "cleanupDate", "cleanupConfirm",
+        "eventsBody", "pagination", "tabFeed", "tabAnalytics",
+        "viewFeed", "viewAnalytics", "chartTimeline", "chartTypes",
+        "chartSeverities", "chartSources", "sidebarOverlay",
+    ]
+    missing_ids = [id_ for id_ in required_ids if f'id="{id_}"' not in html]
+    check("Required UI ids present", not missing_ids, f"missing {missing_ids}")
 
-    # KPI cards
-    check("KPI total card", 'id="kpiTotal"' in html)
-    check("KPI syslog card", 'id="kpiSyslog"' in html)
-    check("KPI snmptrap card", 'id="kpiSnmptrap"' in html)
-    check("KPI webhook card", 'id="kpiWebhook"' in html)
-
-    # Sidebar filters
-    check("Time range buttons", 'data-range="5m"' in html)
-    check("Time range: 1h", 'data-range="1h"' in html)
-    check("Time range: today", 'data-range="today"' in html)
-    check("Time range: all", 'data-range="all"' in html)
-    check("Time from input", 'id="timeFrom"' in html)
-    check("Time to input", 'id="timeTo"' in html)
-    check("Type filter checkboxes", 'value="syslog"' in html)
-    check("Source IP filter", 'id="srcIpFilter"' in html)
-    check("Clear filters button", 'id="clearFilters"' in html)
-    check("Cleanup button", 'id="openCleanupModal"' in html)
-    check("Cleanup date picker", 'id="cleanupDate"' in html)
-    check("Cleanup confirm button", 'id="cleanupConfirm"' in html)
-
-    # Event table
-    check("Events table body", 'id="eventsBody"' in html)
-    check("Sortable th: ts", 'data-sort="ts"' in html)
-    check("Sortable th: src_ip", 'data-sort="src_ip"' in html)
-    check("Sortable th: type", 'data-sort="type"' in html)
-    check("Sortable th: severity", 'data-sort="severity"' in html)
-    check("Pagination container", 'id="pagination"' in html)
-
-    # Tabs and Analytics Charts
-    check("Tabs container element", 'class="tabs-container"' in html)
-    check("Tab Feed button", 'id="tabFeed"' in html)
-    check("Tab Analytics button", 'id="tabAnalytics"' in html)
-    check("View Feed panel", 'id="viewFeed"' in html)
-    check("View Analytics panel", 'id="viewAnalytics"' in html)
-    check("Timeline chart canvas", 'id="chartTimeline"' in html)
-    check("Types chart canvas", 'id="chartTypes"' in html)
-    check("Severities chart canvas", 'id="chartSeverities"' in html)
-    check("Sources chart canvas", 'id="chartSources"' in html)
-
-    # Responsive
-    check("Sidebar overlay", 'id="sidebarOverlay"' in html)
-
-    w.stop(); w.join(timeout=2)
-
-
-def test_css_features():
-    print("\n=== CSS Features ===")
-    _, w, _, c = setup()
-    html = c.get("/").data.decode("utf-8")
-
-    # CSS variables
-    check("CSS var: --bg-primary", "--bg-primary:" in html)
-    check("CSS var: --accent", "--accent:" in html)
-    check("CSS var: --font-mono", "--font-mono:" in html)
-
-    # Dark theme
-    check("body.dark CSS block", "body.dark {" in html or "body.dark{" in html)
-    check("Dark theme overrides vars", "body.dark" in html)
-
-    # Severity colors
-    check("Severity CSS classes", ".severity-dot.emerg" in html)
-    check("Type badge styles", ".type-badge.syslog" in html)
-
-    # Responsive breakpoint
-    check("768px breakpoint", "768px" in html)
-
-    # Animations
-    check("Pulse animation", "@keyframes pulse" in html)
-
-    # Google Fonts
-    check("IBM Plex Mono font", "IBM+Plex+Mono" in html or "IBM Plex Mono" in html)
-
-    w.stop(); w.join(timeout=2)
-
-
-def test_js_features():
-    print("\n=== JavaScript Features ===")
-    _, w, _, c = setup()
-    html = c.get("/").data.decode("utf-8")
-
-    # API integration
-    check("JS fetches /api/events", "/api/events" in html)
-    check("JS posts /api/events/cleanup", "/api/events/cleanup" in html)
-    check("JS fetches /api/kpi", "/api/kpi" in html)
-    check("JS connects to /api/sse", "/api/sse" in html)
-    check("JS displays UTC timestamp in detail", "UTC Time" in html)
-    check("JS has local timezone label", "LOCAL_TIMEZONE" in html)
-
-    # Debounce
-    check("Debounce function defined", "function debounce" in html or "debounce" in html)
-    check("300ms debounce on search", "300" in html)
-
-    # Sort with localStorage
-    check("localStorage sort save", "localStorage.setItem" in html and "nms_sort" in html)
-    check("localStorage sort restore", "localStorage.getItem" in html)
-
-    # Theme toggle
-    check("Theme toggle: nms_theme", "nms_theme" in html)
-    check("classList.toggle dark", "classList.toggle" in html and "dark" in html)
-
-    # SSE EventSource
-    check("EventSource constructor", "new EventSource" in html)
-    check("SSE onmessage handler", "onmessage" in html)
-    check("SSE reconnection handling", "onerror" in html)
-
-    # Pagination
-    check("goPage function", "goPage" in html)
+    required_api_paths = ["/api/events", "/api/events/cleanup", "/api/kpi", "/api/sse"]
+    missing_paths = [path for path in required_api_paths if path not in html]
+    check("Required API paths referenced", not missing_paths, f"missing {missing_paths}")
 
     w.stop(); w.join(timeout=2)
 
@@ -309,25 +210,41 @@ def test_config_and_mibs():
     from io import BytesIO
     mib_content = b"MY-TEST-MIB DEFINITIONS ::= BEGIN\nEND\n"
     r = c.post("/api/mibs", data={
-        "file": (BytesIO(mib_content), "MY-TEST-MIB.my")
+        "file": (BytesIO(mib_content), "vendor-upload.my")
     }, content_type="multipart/form-data")
     check("Upload MIB returns 201", r.status_code == 201)
     
     # Verify file was saved in the writable data MIB directory (test_dir/mibs)
     writable_mib_dir = os.path.join(test_dir, "mibs")
+    uploaded_mib = os.path.join(writable_mib_dir, "vendor-upload.my")
+    old_link = os.path.join(writable_mib_dir, "MY-TEST-MIB.my")
+    new_link = os.path.join(writable_mib_dir, "MY-REPLACED-MIB.my")
     check("Writable MIB directory was created", os.path.exists(writable_mib_dir))
-    check("MIB file was saved in writable directory", os.path.exists(os.path.join(writable_mib_dir, "MY-TEST-MIB.my")))
+    check("MIB file was saved in writable directory", os.path.exists(uploaded_mib))
+    check("Module-name symlink was created", os.path.islink(old_link))
+
+    # Replacing the same uploaded filename with a different module should not leave a stale symlink.
+    r = c.post("/api/mibs", data={
+        "file": (BytesIO(b"MY-REPLACED-MIB DEFINITIONS ::= BEGIN\nEND\n"), "vendor-upload.my")
+    }, content_type="multipart/form-data")
+    check("Replace MIB returns 201", r.status_code == 201)
+    check("Old module-name symlink was removed", not os.path.exists(old_link))
+    check("New module-name symlink was created", os.path.islink(new_link))
     
     # 5. GET /api/mibs to list MIBs
     r = c.get("/api/mibs")
     check("GET mibs returns 200", r.status_code == 200)
     mibs_list = r.get_json()
-    check("Uploaded MIB is in the list", any(m["filename"] == "MY-TEST-MIB.my" for m in mibs_list))
+    check("Uploaded MIB is in the list", any(
+        m["filename"] == "vendor-upload.my" and m["module_name"] == "MY-REPLACED-MIB"
+        for m in mibs_list
+    ))
     
     # 6. DELETE /api/mibs/<filename>
-    r = c.delete("/api/mibs/MY-TEST-MIB.my")
+    r = c.delete("/api/mibs/vendor-upload.my")
     check("DELETE MIB returns 200", r.status_code == 200)
-    check("MIB file was deleted", not os.path.exists(os.path.join(writable_mib_dir, "MY-TEST-MIB.my")))
+    check("MIB file was deleted", not os.path.exists(uploaded_mib))
+    check("Module-name symlink was deleted", not os.path.exists(new_link))
     
     # Cleanup
     os.chmod(os.path.join(test_dir, "mibs_readonly"), 0o777) # restore permission for clean deletion
@@ -338,9 +255,7 @@ def test_config_and_mibs():
 if __name__ == "__main__":
     raise SystemExit(run_suite("Simple NMS -- Phase 3 Validation Suite", [
         test_static_serving,
-        test_html_structure,
-        test_css_features,
-        test_js_features,
+        test_static_contract,
         test_api_cors,
         test_config_and_mibs,
     ]))

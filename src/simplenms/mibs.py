@@ -75,11 +75,26 @@ def list_mib_files(dirs: Iterable[str]) -> list[dict]:
     return files
 
 
+def remove_module_symlinks(directory: str, filename: str, keep: str | None = None) -> None:
+    for entry in os.listdir(directory):
+        if entry == keep:
+            continue
+        path = os.path.join(directory, entry)
+        try:
+            target = os.readlink(path)
+        except OSError:
+            continue
+        if target == filename:
+            os.remove(path)
+
+
 def ensure_module_symlink(directory: str, filename: str, module_name: str) -> None:
     name_base, ext = os.path.splitext(filename)
     if module_name == name_base:
+        remove_module_symlinks(directory, filename)
         return
     link_name = f"{module_name}{ext}"
     link_path = os.path.join(directory, link_name)
+    remove_module_symlinks(directory, filename, keep=link_name)
     if not os.path.exists(link_path):
         os.symlink(filename, link_path)
