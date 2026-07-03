@@ -27,6 +27,7 @@ from mibs import (
     remove_module_symlinks,
 )
 from metrics import runtime_metrics
+from version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
         writer = app.config.get("DB_WRITER")
         return jsonify({
             "status": "healthy",
+            "version": __version__,
             "queue": {
                 "size": write_queue.qsize(),
                 "max_size": write_queue.maxsize or None,

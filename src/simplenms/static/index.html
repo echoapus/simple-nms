@@ -162,6 +162,12 @@ body {
   font-family: var(--font-mono);
 }
 
+.app-version {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
 .status-dot {
   width: 7px;
   height: 7px;
@@ -1058,6 +1064,7 @@ tbody td {
     <div class="header-left">
       <button class="sidebar-toggle" id="sidebarToggle" title="Toggle filters">&#9776;</button>
       <div class="header-logo">simple<span class="dot">.</span>nms</div>
+      <span class="app-version" id="appVersion">v--</span>
       <div class="header-status">
         <span class="status-dot" id="statusDot"></span>
         <span id="lastUpdate">connecting...</span>
@@ -1385,6 +1392,7 @@ tbody td {
     loadingBar: $('#loadingBar'),
     statusDot: $('#statusDot'),
     lastUpdate: $('#lastUpdate'),
+    appVersion: $('#appVersion'),
     sseIndicator: $('#sseIndicator'),
     globalSearch: $('#globalSearch'),
     themeToggle: $('#themeToggle'),
@@ -1502,6 +1510,16 @@ tbody td {
   }
 
   // ── API calls ──
+  async function loadVersion() {
+    try {
+      const resp = await fetch('/health');
+      const data = await resp.json();
+      if (data.version) dom.appVersion.textContent = `v${data.version}`;
+    } catch (err) {
+      console.error('Failed to fetch version:', err);
+    }
+  }
+
   function buildQueryParams() {
     const p = new URLSearchParams();
     p.set('page', state.page);
@@ -2408,6 +2426,7 @@ tbody td {
     updateSortUI();
     bindEvents();
     initMibUpload();
+    loadVersion();
     refresh();
     connectSSE();
 

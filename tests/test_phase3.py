@@ -71,6 +71,7 @@ def test_static_contract():
 
     required_ids = [
         "themeToggle", "globalSearch", "sseIndicator", "sidebarToggle",
+        "appVersion",
         "kpiTotal", "kpiSyslog", "kpiSnmptrap", "kpiWebhook",
         "timeFrom", "timeTo", "srcIpFilter", "clearFilters",
         "openCleanupModal", "cleanupDate", "cleanupConfirm",
@@ -81,7 +82,7 @@ def test_static_contract():
     missing_ids = [id_ for id_ in required_ids if f'id="{id_}"' not in html]
     check("Required UI ids present", not missing_ids, f"missing {missing_ids}")
 
-    required_api_paths = ["/api/events", "/api/events/cleanup", "/api/kpi", "/api/sse"]
+    required_api_paths = ["/health", "/api/events", "/api/events/cleanup", "/api/kpi", "/api/sse"]
     missing_paths = [path for path in required_api_paths if path not in html]
     check("Required API paths referenced", not missing_paths, f"missing {missing_paths}")
 
