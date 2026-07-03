@@ -105,10 +105,16 @@ class MibResolver:
             oid = ObjectIdentity(oid_str)
             oid.resolve_with_mib(self._mib_view)
             resolved = oid.prettyPrint()
+            node_type = oid.get_mib_node().__class__.__name__
+            _, _, suffix = oid.get_mib_symbol()
 
             # Skip unhelpful resolutions like "SNMPv2-SMI::enterprises.99999.1"
             # that just prepend a generic prefix without real meaning
-            if "::enterprises." in resolved or "::mib-2." in resolved:
+            if (
+                "::enterprises." in resolved
+                or "::mib-2." in resolved
+                or (suffix and node_type in ("ModuleIdentity", "ObjectIdentity"))
+            ):
                 logger.info("MIB resolver: Skipping generic resolution for %s (%s)", oid_str, resolved)
                 self._cache[oid_str] = oid_str
                 return oid_str

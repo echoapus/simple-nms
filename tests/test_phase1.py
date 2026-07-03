@@ -126,6 +126,32 @@ def test_snmp_module():
     check("default community=simplenms", tc.community == "simplenms")
 
 
+def test_snmp_mib_partial_resolution():
+    print("\n=== SNMP MIB Partial Resolution ===")
+    import tempfile
+    from collectors.snmp_listener import _PYSNMP_OK, MibResolver
+
+    if not _PYSNMP_OK:
+        check("pysnmp importable", False)
+        return
+
+    from pysnmp.entity import engine
+
+    with tempfile.TemporaryDirectory(prefix="snms_mib_partial_") as mib_dir:
+        with open(os.path.join(mib_dir, "BRANCH-MIB.txt"), "w", encoding="utf-8") as f:
+            f.write("""BRANCH-MIB DEFINITIONS ::= BEGIN
+IMPORTS enterprises, OBJECT-IDENTITY, OBJECT-TYPE, Integer32 FROM SNMPv2-SMI;
+atm OBJECT-IDENTITY STATUS current DESCRIPTION "branch" ::= { enterprises 99999 }
+leaf OBJECT-TYPE SYNTAX Integer32 MAX-ACCESS read-only STATUS current DESCRIPTION "leaf" ::= { atm 1 }
+END
+""")
+        resolver = MibResolver(engine.SnmpEngine(), mib_dirs=[mib_dir], mib_modules=["BRANCH-MIB"])
+        check("Branch plus suffix remains numeric",
+              resolver.resolve("1.3.6.1.4.1.99999.2.3") == "1.3.6.1.4.1.99999.2.3")
+        check("Loaded leaf resolves to name",
+              resolver.resolve("1.3.6.1.4.1.99999.1") == "BRANCH-MIB::leaf")
+
+
 def test_db_writer():
     print("\n=== DB Writer ===")
     db = "/tmp/snms_test_writer.db"
@@ -247,6 +273,7 @@ if __name__ == "__main__":
         test_syslog_parser,
         test_webhook,
         test_snmp_module,
+        test_snmp_mib_partial_resolution,
         test_db_writer,
         test_performance,
         test_end_to_end,
