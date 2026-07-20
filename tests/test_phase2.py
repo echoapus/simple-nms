@@ -329,7 +329,7 @@ def test_api_status():
         check(f"{path}: DB writer configured", d.get("db_writer", {}).get("configured") is True)
         check(f"{path}: DB writer total_written", d.get("db_writer", {}).get("total_written", 0) >= 7)
         check(f"{path}: SSE client count", "sse_clients" in d)
-        check(f"{path}: app version", d.get("version") == "26.7.3")
+        check(f"{path}: app version", d.get("version") == "26.7.20")
 
     w.stop(); w.join(timeout=2)
 
