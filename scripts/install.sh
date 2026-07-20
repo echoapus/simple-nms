@@ -29,7 +29,8 @@ fi
 
 echo "Extracting MIB files from mibs.tar.gz..."
 MIB_DIR="/opt/simple-nms/data/mibs"
-mkdir -p "$MIB_DIR"
+TLS_DIR="/opt/simple-nms/data/tls"
+mkdir -p "$MIB_DIR" "$TLS_DIR"
 if [ -f "$PROJECT_ROOT/resources/mibs.tar.gz" ]; then
     tar -xzf "$PROJECT_ROOT/resources/mibs.tar.gz" --strip-components=1 -C "$MIB_DIR"
     echo "MIB files extracted to $MIB_DIR"
@@ -76,6 +77,15 @@ if 'snmptrap' not in data:
     data['snmptrap'] = {}
 if 'community' not in data['snmptrap']:
     data['snmptrap']['community'] = '$USER_COMMUNITY'
+if 'syslog_tls' not in data:
+    data['syslog_tls'] = {
+        'enabled': False,
+        'host': '0.0.0.0',
+        'port': 6514,
+        'certfile': 'data/tls/server.crt',
+        'keyfile': 'data/tls/server.key',
+        'require_client_cert': False,
+    }
 with open(path, 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=4)
 "
@@ -107,11 +117,12 @@ find /opt/simple-nms/venv/bin -type f -exec chmod 750 {} +
 chown -R simplenms:simplenms /opt/simple-nms/data
 find /opt/simple-nms/data -type d -exec chmod 770 {} +
 find /opt/simple-nms/data -type f -exec chmod 660 {} +
+chmod 700 /opt/simple-nms/data/tls
 
 # Detect port conflicts before starting the service
 echo "Checking for port conflicts..."
 CFG_FILE="/opt/simple-nms/config.json"
-read -r WEB_PORT SYSLOG_PORT SNMP_PORT < <(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); print(cfg.get('webhook', {}).get('port', 80), cfg.get('syslog', {}).get('port', 514), cfg.get('snmptrap', {}).get('port', 162))" 2>/dev/null || echo "80 514 162")
+read -r WEB_PORT SYSLOG_PORT SNMP_PORT TLS_ENABLED TLS_PORT < <(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); tls = cfg.get('syslog_tls', {}); print(cfg.get('webhook', {}).get('port', 80), cfg.get('syslog', {}).get('port', 514), cfg.get('snmptrap', {}).get('port', 162), int(tls.get('enabled', False)), tls.get('port', 6514))" 2>/dev/null || echo "80 514 162 0 6514")
 
 if command -v ss >/dev/null 2>&1; then
     if ss -tln | grep -q ":$WEB_PORT "; then
@@ -122,6 +133,9 @@ if command -v ss >/dev/null 2>&1; then
     fi
     if ss -uln | grep -q ":$SNMP_PORT "; then
         echo "Warning: UDP port $SNMP_PORT (SNMP Trap) is already in use. You may need to stop the system snmpd."
+    fi
+    if [ "$TLS_ENABLED" = "1" ] && ss -tln | grep -q ":$TLS_PORT "; then
+        echo "Warning: TCP port $TLS_PORT (Syslog TLS) is already in use."
     fi
 fi
 

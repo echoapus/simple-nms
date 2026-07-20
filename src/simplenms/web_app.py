@@ -13,6 +13,7 @@ import json
 import logging
 import queue
 import sqlite3
+import tempfile
 import threading
 from datetime import datetime, timezone
 
@@ -142,7 +143,8 @@ sse_hub = SSEHub()
 # Flask app factory
 # ---------------------------------------------------------------------------
 
-def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, snmp_collector=None, config_path: str = "config.json") -> Flask:
+def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, snmp_collector=None,
+               config_path: str = "config.json", tls_reloader=None) -> Flask:
     """Create the unified Flask application."""
 
     app = Flask(__name__,
@@ -152,6 +154,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
     app.config["DB_WRITER"] = db_writer
     app.config["SNMP_COLLECTOR"] = snmp_collector
     app.config["CONFIG_PATH"] = config_path
+    app.config["TLS_RELOADER"] = tls_reloader
 
     # Suppress default Flask request logging
     wlog = logging.getLogger("werkzeug")
@@ -418,6 +421,38 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             mib_dirs = [default_mib_dir] + mib_dirs
         return default_mib_dir, mib_dirs
 
+    def tls_paths() -> dict:
+        data_dir = os.path.dirname(app.config.get("DB_PATH", "data/events.db")) or "data"
+        tls_dir = os.path.join(data_dir, "tls")
+        return {
+            "dir": tls_dir,
+            "certfile": os.path.join(tls_dir, "server.crt"),
+            "keyfile": os.path.join(tls_dir, "server.key"),
+            "cafile": os.path.join(tls_dir, "ca.crt"),
+        }
+
+    def tls_config_response(cfg: dict) -> dict:
+        tls_cfg = cfg.get("syslog_tls", {})
+        paths = tls_paths()
+        return {
+            "enabled": tls_cfg.get("enabled", False),
+            "host": tls_cfg.get("host", "0.0.0.0"),
+            "port": tls_cfg.get("port", 6514),
+            "require_client_cert": tls_cfg.get("require_client_cert", False),
+            "cert_configured": os.path.isfile(tls_cfg.get("certfile") or paths["certfile"]),
+            "key_configured": os.path.isfile(tls_cfg.get("keyfile") or paths["keyfile"]),
+            "ca_configured": os.path.isfile(tls_cfg.get("cafile") or paths["cafile"]),
+        }
+
+    def write_active_config(cfg: dict) -> None:
+        db_path = app.config.get("DB_PATH", "data/events.db")
+        data_dir = os.path.dirname(db_path) or "data"
+        os.makedirs(data_dir, exist_ok=True)
+        overlay_path = os.path.join(data_dir, "config.json")
+        with open(overlay_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=4)
+        app.config["CONFIG_PATH"] = overlay_path
+
     @app.route("/api/config", methods=["GET"])
     def api_config_get():
         try:
@@ -426,7 +461,8 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
                 return jsonify({"error": "Config file not found"}), 404
             return jsonify({
                 "community": cfg.get("snmptrap", {}).get("community", "simplenms"),
-                "webhook_port": cfg.get("webhook", {}).get("port", 80)
+                "webhook_port": cfg.get("webhook", {}).get("port", 80),
+                "syslog_tls": tls_config_response(cfg),
             })
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -436,6 +472,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
         body = request.get_json(silent=True) or {}
         community = body.get("community")
         webhook_port = body.get("webhook_port")
+        tls_update = body.get("syslog_tls")
         
         cfg, path = load_active_config()
         if not cfg and not os.path.exists(path):
@@ -443,6 +480,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             
         updated = False
         port_changed = False
+        tls_changed = False
         
         # 1. Update community if provided
         if community is not None:
@@ -475,15 +513,49 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
                 updated = True
                 port_changed = True
 
+        if tls_update is not None:
+            if not isinstance(tls_update, dict):
+                return jsonify({"error": "syslog_tls must be an object"}), 400
+            if "reload" in tls_update and not isinstance(tls_update["reload"], bool):
+                return jsonify({"error": "syslog_tls.reload must be boolean"}), 400
+            tls_cfg = dict(cfg.get("syslog_tls", {}))
+            for name in ("enabled", "require_client_cert"):
+                if name in tls_update:
+                    if not isinstance(tls_update[name], bool):
+                        return jsonify({"error": f"syslog_tls.{name} must be boolean"}), 400
+                    tls_cfg[name] = tls_update[name]
+            if "host" in tls_update:
+                if not isinstance(tls_update["host"], str) or not tls_update["host"].strip():
+                    return jsonify({"error": "syslog_tls.host cannot be empty"}), 400
+                tls_cfg["host"] = tls_update["host"].strip()
+            if "port" in tls_update:
+                try:
+                    port_val = int(tls_update["port"])
+                    if not 1 <= port_val <= 65535:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    return jsonify({"error": "syslog_tls.port must be between 1 and 65535"}), 400
+                tls_cfg["port"] = port_val
+            paths = tls_paths()
+            tls_cfg.setdefault("host", "0.0.0.0")
+            tls_cfg.setdefault("port", 6514)
+            tls_cfg.setdefault("enabled", False)
+            tls_cfg.setdefault("require_client_cert", False)
+            tls_cfg.setdefault("certfile", paths["certfile"])
+            tls_cfg.setdefault("keyfile", paths["keyfile"])
+            if tls_cfg.get("require_client_cert"):
+                tls_cfg.setdefault("cafile", paths["cafile"])
+            if tls_cfg != cfg.get("syslog_tls", {}) or tls_update.get("reload", False):
+                cfg["syslog_tls"] = tls_cfg
+                updated = tls_changed = True
+
         if updated:
-            db_path = app.config.get("DB_PATH", "data/events.db")
-            data_dir = os.path.dirname(db_path) or "data"
-            overlay_path = os.path.join(data_dir, "config.json")
+            if tls_changed and app.config["TLS_RELOADER"]:
+                result = app.config["TLS_RELOADER"](cfg["syslog_tls"])
+                if not result.get("applied"):
+                    return jsonify({"error": result.get("error", "TLS listener reload failed")}), 400
             try:
-                os.makedirs(data_dir, exist_ok=True)
-                with open(overlay_path, "w", encoding="utf-8") as f:
-                    json.dump(cfg, f, indent=4)
-                app.config["CONFIG_PATH"] = overlay_path
+                write_active_config(cfg)
             except Exception as e:
                 return jsonify({"error": f"Failed to write config: {e}"}), 500
                 
@@ -491,8 +563,45 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             "status": "ok",
             "community": cfg.get("snmptrap", {}).get("community", "simplenms"),
             "webhook_port": cfg.get("webhook", {}).get("port", 80),
-            "port_changed": port_changed
+            "port_changed": port_changed,
+            "syslog_tls": tls_config_response(cfg),
         })
+
+    @app.route("/api/syslog-tls/certificates", methods=["POST"])
+    def api_syslog_tls_certificates():
+        kind = request.form.get("kind")
+        files = {"cert": "certfile", "key": "keyfile", "ca": "cafile"}
+        if kind not in files or "file" not in request.files:
+            return jsonify({"error": "kind (cert, key, or ca) and file are required"}), 400
+        upload = request.files["file"]
+        content = upload.read()
+        if not content:
+            return jsonify({"error": "certificate file is empty"}), 400
+        paths = tls_paths()
+        os.makedirs(paths["dir"], mode=0o700, exist_ok=True)
+        destination = paths[files[kind]]
+        fd, temporary = tempfile.mkstemp(dir=paths["dir"], prefix=".upload-")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(content)
+            os.chmod(temporary, 0o600 if kind == "key" else 0o644)
+            os.replace(temporary, destination)
+        except Exception as e:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            return jsonify({"error": f"Failed to save certificate: {e}"}), 500
+
+        cfg, _ = load_active_config()
+        tls_cfg = dict(cfg.get("syslog_tls", {}))
+        tls_cfg.update({files[kind]: destination})
+        cfg["syslog_tls"] = tls_cfg
+        try:
+            write_active_config(cfg)
+        except Exception as e:
+            return jsonify({"error": f"Failed to write config: {e}"}), 500
+        return jsonify({"status": "ok", "kind": kind, "staged": True, "syslog_tls": tls_config_response(cfg)})
 
     # ------------------------------------------------------------------
     # REST API — MIB Management

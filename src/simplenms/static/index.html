@@ -1264,6 +1264,31 @@ tbody td {
             </div>
           </div>
 
+          <div class="analytics-card" style="padding: 20px;">
+            <h4 style="margin-top: 0; margin-bottom: 16px; font-size: 1.1rem; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Syslog TLS (RFC 5425)</h4>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <label><input type="checkbox" id="inputSyslogTlsEnabled"> Enable TLS Syslog listener</label>
+              <label for="inputSyslogTlsHost">Host</label>
+              <input type="text" id="inputSyslogTlsHost" value="0.0.0.0" class="search-input" style="max-width: 400px;" />
+              <label for="inputSyslogTlsPort">TCP port</label>
+              <input type="number" id="inputSyslogTlsPort" value="6514" min="1" max="65535" class="search-input" style="max-width: 400px;" />
+              <label><input type="checkbox" id="inputSyslogTlsClientCert"> Require client certificate (mTLS)</label>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <label>Server certificate <input type="file" id="syslogTlsCert" accept=".crt,.cer,.pem"></label>
+                <button class="btn" data-tls-upload="cert">Upload</button><span id="syslogTlsCertStatus"></span>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <label>Private key <input type="file" id="syslogTlsKey" accept=".key,.pem"></label>
+                <button class="btn" data-tls-upload="key">Upload</button><span id="syslogTlsKeyStatus"></span>
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <label>CA certificate <input type="file" id="syslogTlsCa" accept=".crt,.cer,.pem"></label>
+                <button class="btn" data-tls-upload="ca">Upload</button><span id="syslogTlsCaStatus"></span>
+              </div>
+              <p style="font-size:0.8rem; color:#e68a00; margin:0;">儲存或上傳後會立即重載 TLS listener，既有 TLS Syslog 連線會中斷。</p>
+            </div>
+          </div>
+
           <!-- MIB File Management -->
           <div class="analytics-card" style="padding: 20px;">
             <h4 style="margin-top: 0; margin-bottom: 16px; font-size: 1.1rem; border-bottom: 1px solid var(--border); padding-bottom: 8px;">MIB File Management</h4>
@@ -2141,6 +2166,14 @@ tbody td {
         const dataConf = await respConf.json();
         $('#inputCommunity').value = dataConf.community || 'simplenms';
         $('#inputWebhookPort').value = dataConf.webhook_port || 80;
+        const tls = dataConf.syslog_tls || {};
+        $('#inputSyslogTlsEnabled').checked = !!tls.enabled;
+        $('#inputSyslogTlsHost').value = tls.host || '0.0.0.0';
+        $('#inputSyslogTlsPort').value = tls.port || 6514;
+        $('#inputSyslogTlsClientCert').checked = !!tls.require_client_cert;
+        $('#syslogTlsCertStatus').textContent = tls.cert_configured ? 'Configured' : 'Missing';
+        $('#syslogTlsKeyStatus').textContent = tls.key_configured ? 'Configured' : 'Missing';
+        $('#syslogTlsCaStatus').textContent = tls.ca_configured ? 'Configured' : 'Optional';
       }
       await fetchMibs();
     } catch (err) {
@@ -2195,6 +2228,11 @@ tbody td {
       showToast('Port must be a valid number between 1 and 65535');
       return;
     }
+    const tlsPort = parseInt($('#inputSyslogTlsPort').value, 10);
+    if (isNaN(tlsPort) || tlsPort < 1 || tlsPort > 65535 || !$('#inputSyslogTlsHost').value.trim()) {
+      showToast('TLS host and port must be valid');
+      return;
+    }
     
     const btn = $('#btnSaveConfig');
     btn.disabled = true;
@@ -2205,7 +2243,14 @@ tbody td {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           community: community,
-          webhook_port: port
+          webhook_port: port,
+          syslog_tls: {
+            enabled: $('#inputSyslogTlsEnabled').checked,
+            host: $('#inputSyslogTlsHost').value.trim(),
+            port: tlsPort,
+            require_client_cert: $('#inputSyslogTlsClientCert').checked,
+            reload: true
+          }
         })
       });
       if (resp.ok) {
@@ -2305,6 +2350,29 @@ tbody td {
       uploadBtn.disabled = fileInput.files.length === 0;
       uploadBtn.textContent = 'Upload & Validate';
     });
+  }
+
+  function initTlsUploads() {
+    $$('[data-tls-upload]').forEach(button => button.addEventListener('click', async () => {
+      const kind = button.dataset.tlsUpload;
+      const input = $(`#syslogTls${kind[0].toUpperCase()}${kind.slice(1)}`);
+      const file = input.files[0];
+      if (!file) return showToast('Choose a file first');
+      const form = new FormData();
+      form.append('kind', kind);
+      form.append('file', file);
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/syslog-tls/certificates', { method: 'POST', body: form });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Upload failed');
+        showToast('TLS file uploaded; save configuration to reload the listener');
+        fetchSettings();
+      } catch (err) {
+        showToast(`TLS upload failed: ${err.message}`);
+      }
+      button.disabled = false;
+    }));
   }
 
   // ── Event listeners ──
@@ -2426,6 +2494,7 @@ tbody td {
     updateSortUI();
     bindEvents();
     initMibUpload();
+    initTlsUploads();
     loadVersion();
     refresh();
     connectSSE();

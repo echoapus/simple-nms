@@ -39,6 +39,25 @@ print('Sent RFC 5424 syslog message')
 "
 ```
 
+### Syslog over TLS (RFC 5425)
+
+In **Settings**, upload the TLS server certificate and private key, enable **TLS Syslog**, and save. This immediately reloads TCP port 6514 and disconnects existing TLS clients. RFC 5425 messages use RFC 6587 octet-counting framing.
+
+This sends an RFC 5424 event to a local test listener with a self-signed certificate:
+
+```bash
+python3 -c "
+import socket, ssl
+message = b'<165>1 2026-07-20T12:00:00Z router app 1 ID47 - TLS syslog test'
+context = ssl._create_unverified_context()  # test certificates only
+with socket.create_connection(('127.0.0.1', 6514)) as raw:
+    with context.wrap_socket(raw, server_hostname='localhost') as conn:
+        conn.sendall(str(len(message)).encode() + b' ' + message)
+"
+```
+
+For production, configure the sender to trust the uploaded server certificate. If mTLS is enabled, configure it with a client certificate signed by the uploaded CA.
+
 ### SNMP Trap
 
 Using `snmptrap` (install: `sudo apt install snmp` on Debian/Ubuntu or `sudo dnf install net-snmp-utils` on RHEL/CentOS):

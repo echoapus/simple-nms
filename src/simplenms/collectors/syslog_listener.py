@@ -5,6 +5,7 @@ import logging
 import queue
 import re
 import socket
+import ssl
 import threading
 from datetime import datetime, timezone
 
@@ -37,6 +38,8 @@ FACILITY_NAMES = [
 SEVERITY_NAMES = [
     "emerg", "alert", "crit", "err", "warning", "notice", "info", "debug",
 ]
+
+MAX_TLS_MESSAGE_SIZE = 1024 * 1024
 
 
 def _parse_pri(pri_val: int):
@@ -192,3 +195,142 @@ class SyslogCollector(threading.Thread):
     def stop(self) -> None:
         if self._sock:
             self._sock.close()
+
+
+class SyslogTLSCollector(threading.Thread):
+    """RFC 5425 Syslog-over-TLS listener using RFC 6587 octet-counting frames."""
+
+    def __init__(self, write_queue: "queue.Queue[dict]", host: str, port: int,
+                 certfile: str, keyfile: str, cafile: str | None = None,
+                 require_client_cert: bool = False):
+        super().__init__(daemon=True, name="syslog-tls-collector")
+        self.q = write_queue
+        self.host, self.port = host, port
+        self.certfile, self.keyfile, self.cafile = certfile, keyfile, cafile
+        self.require_client_cert = require_client_cert
+        self.ready = threading.Event()
+        self.start_error: str | None = None
+        self._stop_event = threading.Event()
+        self._sock: socket.socket | None = None
+        self._clients: set[socket.socket] = set()
+        self._lock = threading.Lock()
+
+    def _context(self) -> ssl.SSLContext:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(self.certfile, self.keyfile)
+        if self.require_client_cert:
+            if not self.cafile:
+                raise ValueError("cafile is required when client certificates are enabled")
+            context.verify_mode = ssl.CERT_REQUIRED
+            context.load_verify_locations(self.cafile)
+        return context
+
+    @staticmethod
+    def _recv_exact(conn: socket.socket, size: int) -> bytes | None:
+        chunks = bytearray()
+        while len(chunks) < size:
+            data = conn.recv(size - len(chunks))
+            if not data:
+                return None
+            chunks.extend(data)
+        return bytes(chunks)
+
+    def _read_frame(self, conn: socket.socket) -> bytes | None:
+        header = bytearray()
+        while len(header) <= 10:
+            char = conn.recv(1)
+            if not char:
+                return None
+            if char == b" ":
+                break
+            if not char.isdigit():
+                raise ValueError("RFC 6587 frame must begin with a decimal length")
+            header.extend(char)
+        else:
+            raise ValueError("RFC 6587 frame length is too long")
+        if not header:
+            raise ValueError("RFC 6587 frame has no length")
+        length = int(header)
+        if length > MAX_TLS_MESSAGE_SIZE:
+            raise ValueError("RFC 6587 frame exceeds maximum message size")
+        return self._recv_exact(conn, length)
+
+    def _handle_client(self, conn: socket.socket, addr: tuple) -> None:
+        with self._lock:
+            self._clients.add(conn)
+        try:
+            while not self._stop_event.is_set():
+                frame = self._read_frame(conn)
+                if frame is None:
+                    return
+                evt = _parse_syslog(frame, addr)
+                try:
+                    self.q.put_nowait(evt)
+                except queue.Full:
+                    runtime_metrics.inc_dropped("syslog")
+                    logger.warning("TLS syslog event from %s dropped because write queue is full", addr[0])
+        except (OSError, ssl.SSLError, ValueError) as exc:
+            if not self._stop_event.is_set():
+                logger.warning("TLS syslog client %s disconnected: %s", addr[0], exc)
+        finally:
+            with self._lock:
+                self._clients.discard(conn)
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+    def run(self) -> None:
+        try:
+            context = self._context()
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._sock.settimeout(1.0)
+            self._sock.bind((self.host, self.port))
+            self._sock.listen()
+        except Exception as exc:
+            self.start_error = str(exc)
+            self.ready.set()
+            logger.error("TLS syslog collector could not start: %s", exc)
+            return
+
+        self.ready.set()
+        logger.info("TLS syslog collector listening on %s:%d/tcp", self.host, self.port)
+        while not self._stop_event.is_set():
+            try:
+                raw_conn, addr = self._sock.accept()
+                with self._lock:
+                    self._clients.add(raw_conn)
+                try:
+                    conn = context.wrap_socket(raw_conn, server_side=True)
+                except (OSError, ValueError, ssl.SSLError) as exc:
+                    with self._lock:
+                        self._clients.discard(raw_conn)
+                    try:
+                        raw_conn.close()
+                    except OSError:
+                        pass
+                    if not self._stop_event.is_set():
+                        logger.warning("TLS syslog handshake from %s failed: %s", addr[0], exc)
+                    continue
+                with self._lock:
+                    self._clients.discard(raw_conn)
+                threading.Thread(target=self._handle_client, args=(conn, addr), daemon=True).start()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._sock:
+            self._sock.close()
+        with self._lock:
+            clients = list(self._clients)
+        for conn in clients:
+            try:
+                conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            conn.close()

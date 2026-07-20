@@ -15,7 +15,7 @@ import threading
 import time
 
 from database import init_db, DBWriter
-from collectors.syslog_listener import SyslogCollector
+from collectors.syslog_listener import SyslogCollector, SyslogTLSCollector
 from collectors.snmp_listener import SNMPTrapCollector
 from web_app import create_app, sse_hub
 
@@ -28,6 +28,66 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 logger = logging.getLogger("simple-nms")
+
+
+class TLSCollectorManager:
+    """Owns the replaceable RFC 5425 listener used by the Web Settings API."""
+
+    def __init__(self, write_queue):
+        self.write_queue = write_queue
+        self.collector = None
+        self.config = None
+        self._lock = threading.Lock()
+
+    def _start(self, cfg: dict) -> tuple[bool, str | None]:
+        collector = SyslogTLSCollector(
+            self.write_queue,
+            host=cfg.get("host", "0.0.0.0"),
+            port=cfg.get("port", 6514),
+            certfile=cfg.get("certfile", ""),
+            keyfile=cfg.get("keyfile", ""),
+            cafile=cfg.get("cafile") or None,
+            require_client_cert=cfg.get("require_client_cert", False),
+        )
+        collector.start()
+        if not collector.ready.wait(5):
+            collector.stop()
+            return False, "TLS listener start timed out"
+        if collector.start_error:
+            return False, collector.start_error
+        self.collector = collector
+        self.config = dict(cfg)
+        return True, None
+
+    def apply(self, cfg: dict) -> dict:
+        """Replace the listener; restore the previous one if replacement fails."""
+        with self._lock:
+            enabled = cfg.get("enabled", False)
+            previous, previous_cfg = self.collector, self.config
+            if previous:
+                previous.stop()
+                previous.join(timeout=2)
+                self.collector = None
+            if not enabled:
+                self.config = dict(cfg)
+                return {"applied": True, "enabled": False}
+
+            ok, error = self._start(cfg)
+            if ok:
+                return {"applied": True, "enabled": True}
+
+            if previous_cfg and previous_cfg.get("enabled", False):
+                restored, restore_error = self._start(previous_cfg)
+                if not restored:
+                    logger.error("Failed to restore previous TLS listener: %s", restore_error)
+            return {"applied": False, "error": error}
+
+    def stop(self) -> None:
+        with self._lock:
+            if self.collector:
+                self.collector.stop()
+                self.collector.join(timeout=2)
+                self.collector = None
 
 
 def load_config(path: str = "config.json") -> dict:
@@ -81,6 +141,7 @@ def main() -> None:
         sse_callback=sse_hub.publish,
     )
     db_writer.start()
+    tls_manager = TLSCollectorManager(write_queue)
 
     threads = []
     _web_server = None
@@ -113,6 +174,12 @@ def main() -> None:
         threads.append(tc)
         logger.info("SNMP trap collector started on :%d/udp", snmp_cfg.get("port", 162))
 
+    tls_cfg = cfg.get("syslog_tls", {})
+    if tls_cfg.get("enabled", False):
+        result = tls_manager.apply(tls_cfg)
+        if not result["applied"]:
+            logger.error("TLS syslog collector was not started: %s", result["error"])
+
     # Unified web server (webhook + API + SSE)
     webhook_cfg = cfg.get("webhook", {})
     if webhook_cfg.get("enabled", False):
@@ -123,6 +190,7 @@ def main() -> None:
             db_writer=db_writer,
             snmp_collector=tc,
             config_path=config_path,
+            tls_reloader=tls_manager.apply,
         )
         host = webhook_cfg.get("host", "0.0.0.0")
         port = webhook_cfg.get("port", 5000)
@@ -148,6 +216,7 @@ def main() -> None:
             for t in threads:
                 if hasattr(t, "stop"):
                     t.stop()
+            tls_manager.stop()
             db_writer.stop()
 
     signal.signal(signal.SIGINT, handle_signal)

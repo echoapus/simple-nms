@@ -191,6 +191,14 @@ sudo ./scripts/install.sh
         "host": "0.0.0.0",
         "port": 514
     },
+    "syslog_tls": {
+        "enabled": false,
+        "host": "0.0.0.0",
+        "port": 6514,
+        "certfile": "data/tls/server.crt",
+        "keyfile": "data/tls/server.key",
+        "require_client_cert": false
+    },
     "snmptrap": {
         "enabled": true,
         "host": "0.0.0.0",
@@ -216,6 +224,10 @@ sudo ./scripts/install.sh
 | `snmptrap.community` | SNMP community string（需與網路設備一致） |
 | `snmptrap.mib_dirs` | ASN.1 MIB 檔案搜尋路徑（可放多個目錄） |
 | `webhook.port` | Web Server 監聽的 HTTP port |
+
+### Syslog TLS（RFC 5425）
+
+在 Web UI 的 **Settings** 上傳伺服器憑證與私鑰，啟用 TLS Syslog 後儲存。系統會立即在 TCP 6514 啟動或重載 listener，既有 TLS Syslog 連線會中斷。若需要 mTLS，請再上傳 CA 憑證並啟用 **Require client certificate**。上傳檔案儲存在 `/opt/simple-nms/data/tls/`，私鑰不會由 API 回傳。
 
 如果 Simple NMS 放在同一台主機的 HAProxy 後面，建議讓 Web Server 只監聽 loopback：
 
@@ -497,6 +509,10 @@ Linux rsyslog：
 # /etc/rsyslog.d/50-nms.conf
 *.* @10.0.0.100:514
 ```
+
+### Syslog TLS（RFC 5425）
+
+TLS 傳輸使用 TCP 6514 與 RFC 6587 octet-counting framing。發送端必須信任 Web UI 上傳的伺服器憑證；啟用 mTLS 時，發送端也必須提供由上傳 CA 簽發的 client certificate。
 
 ### SNMP Trap 目的地
 

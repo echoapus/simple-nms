@@ -12,6 +12,14 @@
         "host": "0.0.0.0",
         "port": 514
     },
+    "syslog_tls": {
+        "enabled": false,
+        "host": "0.0.0.0",
+        "port": 6514,
+        "certfile": "data/tls/server.crt",
+        "keyfile": "data/tls/server.key",
+        "require_client_cert": false
+    },
     "snmptrap": {
         "enabled": true,
         "host": "0.0.0.0",

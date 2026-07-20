@@ -57,6 +57,14 @@ Edit `/opt/simple-nms/config.json`:
         "host": "0.0.0.0",
         "port": 514
     },
+    "syslog_tls": {
+        "enabled": false,
+        "host": "0.0.0.0",
+        "port": 6514,
+        "certfile": "data/tls/server.crt",
+        "keyfile": "data/tls/server.key",
+        "require_client_cert": false
+    },
     "snmptrap": {
         "enabled": true,
         "host": "0.0.0.0",
@@ -71,6 +79,10 @@ Edit `/opt/simple-nms/config.json`:
     }
 }
 ```
+
+### Syslog TLS (RFC 5425)
+
+Use the Web UI **Settings** page to upload the server certificate and private key, then enable TLS Syslog and save. The listener starts or reloads immediately on TCP 6514 and disconnects active TLS clients. For mTLS, upload a CA certificate and enable **Require client certificate**. The uploaded files are stored in `/opt/simple-nms/data/tls/`; keep this directory readable only by the service user.
 
 If Simple NMS is behind HAProxy on the same host, bind the web server to loopback and use a non-public backend port:
 
@@ -146,6 +158,7 @@ If using UFW:
 ```bash
 sudo ufw allow 80/tcp     # Web UI + Webhook
 sudo ufw allow 514/udp    # Syslog
+sudo ufw allow 6514/tcp   # Syslog TLS (RFC 5425), if enabled
 sudo ufw allow 162/udp    # SNMP Trap
 ```
 

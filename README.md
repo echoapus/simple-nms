@@ -8,6 +8,7 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
   - Syslog (UDP 514) — RFC 3164 and RFC 5424 parsing (structured data to JSON, header metadata as tags)
   - SNMP Trap (UDP 162) — via pysnmp, varbinds stored as JSON
   - Webhook (HTTP POST `/webhook`) — JSON ingestion
+  - Syslog TLS (TCP 6514, RFC 5425) — optional TLS listener with RFC 6587 octet-counting framing; configure certificates in the Web UI Settings page
 - **SQLite storage** with WAL mode for concurrent writes, batched inserts (~5,000+ events/sec)
 - **Real-time web dashboard** on port 80:
   - KPI cards (total / syslog / snmptrap / webhook counts)
@@ -106,6 +107,7 @@ Forwarded client IP headers are trusted only when the immediate peer is loopback
 - Use the Web UI **Clear Old Events** action or `POST /api/events/cleanup` for retention cleanup.
 - Use `cleanup.py` only when a local cron or container job is simpler than calling the API.
 - Use the Settings tab or `POST /api/config` to update the SNMP community at runtime.
+- Configure RFC 5425 Syslog TLS in **Settings**: upload the server certificate and private key (and CA certificate for mTLS), then save. The TLS listener reloads immediately and disconnects existing TLS Syslog clients. Files are stored under `data/tls/`; private keys are never returned by the API.
 - Upload custom MIB files from the Settings tab, or place them in a configured `snmptrap.mib_dirs` directory before restart.
 
 ## Tests
@@ -115,12 +117,19 @@ python3 tests/test_phase1.py
 python3 tests/test_phase2.py
 python3 tests/test_phase3.py
 python3 tests/test_phase4.py
+python3 tests/test_syslog_tls.py
 ```
 
 The SNMP community hot-update check can also be run against a live service:
 
 ```bash
 ./scripts/check_community_update.py --base-url http://127.0.0.1 --trap-host 127.0.0.1 --trap-port 162 --restore
+```
+
+Verify a configured TLS Syslog listener:
+
+```bash
+./scripts/check_syslog_tls.py --base-url http://127.0.0.1 --tls-host 127.0.0.1 --tls-port 6514
 ```
 
 ## License
