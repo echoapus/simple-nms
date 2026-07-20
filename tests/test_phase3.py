@@ -79,7 +79,7 @@ def test_static_contract():
         "viewFeed", "viewAnalytics", "chartTimeline", "chartTypes",
         "chartSeverities", "chartSources", "sidebarOverlay",
         "btnSaveService", "btnApplyTls", "syslogTlsOverallStatus",
-        "inputCommunity", "inputSyslogTlsEnabled", "mibListBody",
+        "inputCommunity", "inputSyslogTlsEnabled", "mibListBody", "githubLink",
     ]
     missing_ids = [id_ for id_ in required_ids if f'id="{id_}"' not in html]
     check("Required UI ids present", not missing_ids, f"missing {missing_ids}")
