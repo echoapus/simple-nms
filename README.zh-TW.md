@@ -512,7 +512,7 @@ Linux rsyslog：
 
 ### Syslog TLS（RFC 5425）
 
-TLS 傳輸使用 TCP 6514 與 RFC 6587 octet-counting framing。發送端必須信任 Web UI 上傳的伺服器憑證；啟用 mTLS 時，發送端也必須提供由上傳 CA 簽發的 client certificate。
+TLS 傳輸使用 TCP 6514，優先採用 RFC 6587 octet-counting framing；為了相容部分設備，也接受以換行分隔的 TLS Syslog。發送端必須信任 Web UI 上傳的伺服器憑證；啟用 mTLS 時，發送端也必須提供由上傳 CA 簽發的 client certificate。
 
 ### SNMP Trap 目的地
 

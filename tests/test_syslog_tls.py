@@ -94,5 +94,34 @@ def test_hot_reload_closes_clients():
             manager.stop()
 
 
+def test_tls_newline_delimited_event():
+    with tempfile.TemporaryDirectory(prefix="snms_tls_newline_") as tmp:
+        cert, key = os.path.join(tmp, "server.crt"), os.path.join(tmp, "server.key")
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+            "-subj", "/CN=localhost", "-keyout", key, "-out", cert,
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
+        events = queue.Queue()
+        collector = SyslogTLSCollector(events, "127.0.0.1", port, cert, key)
+        collector.start()
+        collector.ready.wait(3)
+        try:
+            context = ssl._create_unverified_context()
+            with socket.create_connection(("127.0.0.1", port), timeout=3) as raw:
+                with context.wrap_socket(raw, server_hostname="localhost") as conn:
+                    conn.sendall(b"<134>newline-framed TLS syslog\n")
+            event = events.get(timeout=3)
+            check("newline-framed TLS syslog is accepted", event["payload"] == "newline-framed TLS syslog")
+        finally:
+            collector.stop()
+            collector.join(timeout=3)
+
+
 if __name__ == "__main__":
-    raise SystemExit(run_suite("Simple NMS -- RFC 5425 Validation", [test_tls_octet_counted_event, test_hot_reload_closes_clients]))
+    raise SystemExit(run_suite("Simple NMS -- RFC 5425 Validation", [
+        test_tls_octet_counted_event, test_hot_reload_closes_clients, test_tls_newline_delimited_event,
+    ]))

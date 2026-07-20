@@ -8,7 +8,7 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
   - Syslog (UDP 514) — RFC 3164 and RFC 5424 parsing (structured data to JSON, header metadata as tags)
   - SNMP Trap (UDP 162) — via pysnmp, varbinds stored as JSON
   - Webhook (HTTP POST `/webhook`) — JSON ingestion
-  - Syslog TLS (TCP 6514, RFC 5425) — optional TLS listener with RFC 6587 octet-counting framing; configure certificates in the Web UI Settings page
+  - Syslog TLS (TCP 6514, RFC 5425) — optional TLS listener with RFC 6587 octet-counting framing and newline-framing compatibility; configure certificates in the Web UI Settings page
 - **SQLite storage** with WAL mode for concurrent writes, batched inserts (~5,000+ events/sec)
 - **Real-time web dashboard** on port 80:
   - KPI cards (total / syslog / snmptrap / webhook counts)

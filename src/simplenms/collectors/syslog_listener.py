@@ -237,7 +237,23 @@ class SyslogTLSCollector(threading.Thread):
         return bytes(chunks)
 
     def _read_frame(self, conn: socket.socket) -> bytes | None:
-        header = bytearray()
+        first = conn.recv(1)
+        if not first:
+            return None
+        if not first.isdigit():
+            # Some appliances send RFC 5424 over TLS with newline framing.
+            # Accept it for interoperability while preferring RFC 6587 below.
+            message = bytearray(first)
+            while len(message) <= MAX_TLS_MESSAGE_SIZE:
+                char = conn.recv(1)
+                if not char:
+                    return bytes(message) if message else None
+                if char == b"\n":
+                    return bytes(message)
+                message.extend(char)
+            raise ValueError("newline-delimited syslog message exceeds maximum size")
+
+        header = bytearray(first)
         while len(header) <= 10:
             char = conn.recv(1)
             if not char:
@@ -245,7 +261,7 @@ class SyslogTLSCollector(threading.Thread):
             if char == b" ":
                 break
             if not char.isdigit():
-                raise ValueError("RFC 6587 frame must begin with a decimal length")
+                raise ValueError("RFC 6587 frame length must be decimal")
             header.extend(char)
         else:
             raise ValueError("RFC 6587 frame length is too long")

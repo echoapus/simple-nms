@@ -85,6 +85,7 @@ def test_static_contract():
     required_api_paths = ["/health", "/api/events", "/api/events/cleanup", "/api/kpi", "/api/sse"]
     missing_paths = [path for path in required_api_paths if path not in html]
     check("Required API paths referenced", not missing_paths, f"missing {missing_paths}")
+    check("Theme follows browser preference", "prefers-color-scheme: dark" in html)
 
     w.stop(); w.join(timeout=2)
 

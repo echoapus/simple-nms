@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Simple NMS</title>
+<script>
+  try {
+    if (localStorage.getItem('nms_theme') !== 'light' &&
+        (localStorage.getItem('nms_theme') === 'dark' || matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.dataset.theme = 'dark';
+    }
+  } catch (_) {}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -65,7 +73,7 @@
   --font-mono: 'IBM Plex Mono', 'Cascadia Code', 'Fira Code', monospace;
 }
 
-body.dark {
+body.dark, html[data-theme="dark"] body {
   --bg-primary: #090d16;
   --bg-secondary: #111827;
   --bg-sidebar: #0f172a;
@@ -1054,7 +1062,7 @@ tbody td {
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body class="dark">
+<body>
 <div class="app">
   <!-- Loading bar -->
   <div class="loading-bar" id="loadingBar" style="width:0"></div>
@@ -1855,24 +1863,33 @@ tbody td {
   }, 500);
 
   // ── Theme ──
-  function initTheme() {
-    const saved = localStorage.getItem('nms_theme');
-    if (saved === 'light') {
-      dom.body.classList.remove('dark');
-    }
+  const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+
+  function setTheme(isDark) {
+    dom.body.classList.toggle('dark', isDark);
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
     updateThemeUI();
   }
 
+  function initTheme() {
+    const saved = localStorage.getItem('nms_theme');
+    setTheme(saved ? saved === 'dark' : systemTheme.matches);
+    systemTheme.addEventListener('change', event => {
+      if (!localStorage.getItem('nms_theme')) setTheme(event.matches);
+    });
+  }
+
   function toggleTheme() {
-    dom.body.classList.toggle('dark');
-    localStorage.setItem('nms_theme', dom.body.classList.contains('dark') ? 'dark' : 'light');
-    updateThemeUI();
+    const isDark = !dom.body.classList.contains('dark');
+    localStorage.setItem('nms_theme', isDark ? 'dark' : 'light');
+    setTheme(isDark);
   }
 
   function updateThemeUI() {
     const isDark = dom.body.classList.contains('dark');
     dom.themeIcon.innerHTML = isDark ? '&#9788;' : '&#9790;';
     dom.themeLabel.textContent = isDark ? 'Light' : 'Dark';
+    dom.themeToggle.setAttribute('aria-label', `Switch to ${isDark ? 'light' : 'dark'} theme`);
   }
 
   // ── Sidebar (mobile) ──
