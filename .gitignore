@@ -26,6 +26,14 @@ venv/
 env/
 .env
 
+# TLS credentials uploaded by the Settings page or used for local testing
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+
 .DS_Store
 Thumbs.db
 *.swp

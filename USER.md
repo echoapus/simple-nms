@@ -41,7 +41,7 @@ print('Sent RFC 5424 syslog message')
 
 ### Syslog over TLS (RFC 5425)
 
-In **Settings**, upload the TLS server certificate and private key, enable **TLS Syslog**, and save. This immediately reloads TCP port 6514 and disconnects existing TLS clients. RFC 6587 octet-counting framing is preferred; newline-delimited TLS Syslog is also accepted for appliance compatibility.
+In **Settings → Syslog TLS**, upload the TLS server certificate and private key, enable **TLS Syslog**, then select **Apply TLS changes**. Applying immediately reloads TCP port 6514 and disconnects existing TLS clients. RFC 6587 octet-counting framing is preferred; newline-delimited TLS Syslog is also accepted for appliance compatibility.
 
 This sends an RFC 5424 event to a local test listener with a self-signed certificate:
 
@@ -57,6 +57,12 @@ with socket.create_connection(('127.0.0.1', 6514)) as raw:
 ```
 
 For production, configure the sender to trust the uploaded server certificate. If mTLS is enabled, configure it with a client certificate signed by the uploaded CA.
+
+### Settings workflow
+
+- **Service** saves SNMP community and Web/Webhook port without touching TLS. Restart the service after changing the Web/Webhook port.
+- **Syslog TLS** stages certificate uploads separately; only **Apply TLS changes** restarts that listener.
+- **Custom MIBs** upload and delete independently, so MIB work never interrupts Syslog TLS.
 
 ### SNMP Trap
 

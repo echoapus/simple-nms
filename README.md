@@ -20,7 +20,7 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
   - Dark/light theme toggle
   - Responsive layout (mobile-friendly)
   - Server-Sent Events (SSE) for live updates
-  - Settings page for SNMP community updates and custom MIB uploads
+  - Task-oriented Settings page: independent Service, Syslog TLS, and custom MIB controls
 - **Single Python process** — no external web server, message broker, or database server required
 - **Reliability** — write failures are logged and tracked via dropped metrics
 - **Reverse-proxy aware webhooks** — direct clients use the socket peer IP; requests forwarded by a local proxy can use `X-Forwarded-For` / `X-Real-IP` for the original client IP
@@ -106,9 +106,9 @@ Forwarded client IP headers are trusted only when the immediate peer is loopback
 
 - Use the Web UI **Clear Old Events** action or `POST /api/events/cleanup` for retention cleanup.
 - Use `cleanup.py` only when a local cron or container job is simpler than calling the API.
-- Use the Settings tab or `POST /api/config` to update the SNMP community at runtime.
-- Configure RFC 5425 Syslog TLS in **Settings**: upload the server certificate and private key (and CA certificate for mTLS), then save. The TLS listener reloads immediately and disconnects existing TLS Syslog clients. Files are stored under `data/tls/`; private keys are never returned by the API.
-- Upload custom MIB files from the Settings tab, or place them in a configured `snmptrap.mib_dirs` directory before restart.
+- **Service** settings save the SNMP community and Web/Webhook port independently. A Web port change still requires a service restart.
+- **Syslog TLS** uses a deliberate flow: upload the server certificate/private key (and CA certificate for mTLS), then select **Apply TLS changes**. This immediately reloads TLS and disconnects current TLS Syslog clients. Files are stored under `data/tls/`; private keys are never returned by the API.
+- **Custom MIBs** upload and delete independently; uploaded MIBs are loaded by the running resolver when possible.
 
 ## Tests
 

@@ -82,7 +82,9 @@ Edit `/opt/simple-nms/config.json`:
 
 ### Syslog TLS (RFC 5425)
 
-Use the Web UI **Settings** page to upload the server certificate and private key, then enable TLS Syslog and save. The listener starts or reloads immediately on TCP 6514 and disconnects active TLS clients. For mTLS, upload a CA certificate and enable **Require client certificate**. The uploaded files are stored in `/opt/simple-nms/data/tls/`; keep this directory readable only by the service user.
+Use the Web UI **Settings → Syslog TLS** card to upload the server certificate and private key, then choose **Apply TLS changes**. The listener starts or reloads immediately on TCP 6514 and disconnects active TLS clients. For mTLS, upload a CA certificate and enable **Require client certificate** before applying. The uploaded files are stored in `/opt/simple-nms/data/tls/`; keep this directory readable only by the service user.
+
+The **Service** card saves SNMP community and Web/Webhook settings separately. Changing the Web/Webhook port requires a service restart; TLS changes do not.
 
 If Simple NMS is behind HAProxy on the same host, bind the web server to loopback and use a non-public backend port:
 

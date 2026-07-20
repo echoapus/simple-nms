@@ -227,7 +227,9 @@ sudo ./scripts/install.sh
 
 ### Syslog TLS（RFC 5425）
 
-在 Web UI 的 **Settings** 上傳伺服器憑證與私鑰，啟用 TLS Syslog 後儲存。系統會立即在 TCP 6514 啟動或重載 listener，既有 TLS Syslog 連線會中斷。若需要 mTLS，請再上傳 CA 憑證並啟用 **Require client certificate**。上傳檔案儲存在 `/opt/simple-nms/data/tls/`，私鑰不會由 API 回傳。
+在 Web UI 的 **Settings → Syslog TLS** 上傳伺服器憑證與私鑰，啟用 TLS Syslog 後按 **Apply TLS changes**。系統會立即在 TCP 6514 啟動或重載 listener，既有 TLS Syslog 連線會中斷。若需要 mTLS，請先上傳 CA 憑證並啟用 **Require client certificate**。上傳檔案儲存在 `/opt/simple-nms/data/tls/`，私鑰不會由 API 回傳。
+
+新版 Settings 分成三個獨立區塊：**Service** 儲存 SNMP community 與 Web/Webhook port（修改 Web port 仍需重啟服務）；**Syslog TLS** 只在 Apply 時重載 TLS listener；**Custom MIBs** 可獨立上傳與刪除，不會影響 TLS。
 
 如果 Simple NMS 放在同一台主機的 HAProxy 後面，建議讓 Web Server 只監聽 loopback：
 
