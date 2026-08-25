@@ -1295,6 +1295,12 @@ tbody td {
           </section>
 
           <section class="settings-card">
+            <div class="settings-card-header"><div><h3>Syslog source denylist</h3><p>Drop syslog messages (UDP and TLS) from these source IPs before they are parsed or stored.</p></div></div>
+            <div class="settings-field"><label for="inputSyslogDenyIps">Denied IPs (one per line)</label><textarea id="inputSyslogDenyIps" rows="4" placeholder="10.0.0.5&#10;192.168.1.99" style="width:100%; padding:8px 10px; border:1px solid var(--border-input); border-radius:var(--radius); background:var(--bg-input); color:var(--text-primary); font:inherit; resize:vertical;"></textarea></div>
+            <div class="settings-actions"><button class="btn btn-primary" id="btnSaveDenyIps">Save denylist</button><span class="settings-note">Applied immediately, no restart needed.</span></div>
+          </section>
+
+          <section class="settings-card">
             <div class="settings-card-header"><div><h3>Syslog TLS</h3><p>RFC 5425 listener. Upload files first, then apply changes.</p></div><span class="settings-status" id="syslogTlsOverallStatus">Checking…</span></div>
             <div class="settings-grid">
               <label class="settings-toggle"><input type="checkbox" id="inputSyslogTlsEnabled"> Enable TLS listener</label>
@@ -2187,6 +2193,7 @@ tbody td {
         const dataConf = await respConf.json();
         $('#inputCommunity').value = dataConf.community || 'simplenms';
         $('#inputWebhookPort').value = dataConf.webhook_port || 80;
+        $('#inputSyslogDenyIps').value = (dataConf.syslog_deny_ips || []).join('\n');
         const tls = dataConf.syslog_tls || {};
         $('#inputSyslogTlsEnabled').checked = !!tls.enabled;
         $('#inputSyslogTlsHost').value = tls.host || '0.0.0.0';
@@ -2282,6 +2289,30 @@ tbody td {
     }
     btn.disabled = false;
     btn.textContent = 'Save service settings';
+  }
+
+  async function saveDenyIps() {
+    const denyIps = $('#inputSyslogDenyIps').value.split('\n').map(s => s.trim()).filter(Boolean);
+    const btn = $('#btnSaveDenyIps');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+    try {
+      const resp = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ syslog_deny_ips: denyIps })
+      });
+      if (resp.ok) {
+        showToast('Denylist saved');
+      } else {
+        const err = await resp.json();
+        showToast(`Failed: ${err.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      showToast('Failed to save denylist');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Save denylist';
   }
 
   async function applyTlsConfig() {
@@ -2500,6 +2531,7 @@ tbody td {
 
     // Settings community save button
     $('#btnSaveService')?.addEventListener('click', saveServiceConfig);
+    $('#btnSaveDenyIps')?.addEventListener('click', saveDenyIps);
     $('#btnApplyTls')?.addEventListener('click', applyTlsConfig);
   }
 

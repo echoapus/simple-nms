@@ -164,11 +164,13 @@ def _parse_syslog(data: bytes, addr: tuple) -> dict:
 class SyslogCollector(threading.Thread):
     """UDP syslog listener that pushes parsed events onto the write queue."""
 
-    def __init__(self, write_queue: "queue.Queue[dict]", host: str = "0.0.0.0", port: int = 514):
+    def __init__(self, write_queue: "queue.Queue[dict]", host: str = "0.0.0.0", port: int = 514,
+                 deny_ips=None):
         super().__init__(daemon=True, name="syslog-collector")
         self.q = write_queue
         self.host = host
         self.port = port
+        self.deny_ips = set(deny_ips or [])
         self._sock: socket.socket | None = None
 
     def run(self) -> None:
@@ -181,6 +183,9 @@ class SyslogCollector(threading.Thread):
         while True:
             try:
                 data, addr = self._sock.recvfrom(65535)
+                if addr[0] in self.deny_ips:
+                    logger.debug("Syslog event from %s dropped (denylisted)", addr[0])
+                    continue
                 evt = _parse_syslog(data, addr)
                 try:
                     self.q.put_nowait(evt)
@@ -196,18 +201,22 @@ class SyslogCollector(threading.Thread):
         if self._sock:
             self._sock.close()
 
+    def update_deny_ips(self, deny_ips) -> None:
+        self.deny_ips = set(deny_ips or [])
+
 
 class SyslogTLSCollector(threading.Thread):
     """RFC 5425 Syslog-over-TLS listener using RFC 6587 octet-counting frames."""
 
     def __init__(self, write_queue: "queue.Queue[dict]", host: str, port: int,
                  certfile: str, keyfile: str, cafile: str | None = None,
-                 require_client_cert: bool = False):
+                 require_client_cert: bool = False, deny_ips=None):
         super().__init__(daemon=True, name="syslog-tls-collector")
         self.q = write_queue
         self.host, self.port = host, port
         self.certfile, self.keyfile, self.cafile = certfile, keyfile, cafile
         self.require_client_cert = require_client_cert
+        self.deny_ips = set(deny_ips or [])
         self.ready = threading.Event()
         self.start_error: str | None = None
         self._stop_event = threading.Event()
@@ -316,6 +325,10 @@ class SyslogTLSCollector(threading.Thread):
         while not self._stop_event.is_set():
             try:
                 raw_conn, addr = self._sock.accept()
+                if addr[0] in self.deny_ips:
+                    logger.debug("TLS syslog connection from %s dropped (denylisted)", addr[0])
+                    raw_conn.close()
+                    continue
                 with self._lock:
                     self._clients.add(raw_conn)
                 try:
@@ -337,6 +350,9 @@ class SyslogTLSCollector(threading.Thread):
                 continue
             except OSError:
                 break
+
+    def update_deny_ips(self, deny_ips) -> None:
+        self.deny_ips = set(deny_ips or [])
 
     def stop(self) -> None:
         self._stop_event.set()

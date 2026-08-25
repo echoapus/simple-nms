@@ -48,6 +48,7 @@ class TLSCollectorManager:
             keyfile=cfg.get("keyfile", ""),
             cafile=cfg.get("cafile") or None,
             require_client_cert=cfg.get("require_client_cert", False),
+            deny_ips=cfg.get("deny_ips"),
         )
         collector.start()
         if not collector.ready.wait(5):
@@ -148,11 +149,13 @@ def main() -> None:
 
     # Syslog collector
     syslog_cfg = cfg.get("syslog", {})
+    sc = None
     if syslog_cfg.get("enabled", False):
         sc = SyslogCollector(
             write_queue,
             host=syslog_cfg.get("host", "0.0.0.0"),
             port=syslog_cfg.get("port", 514),
+            deny_ips=syslog_cfg.get("deny_ips"),
         )
         sc.start()
         threads.append(sc)
@@ -191,6 +194,8 @@ def main() -> None:
             snmp_collector=tc,
             config_path=config_path,
             tls_reloader=tls_manager.apply,
+            syslog_collector=sc,
+            syslog_tls_collector_getter=lambda: tls_manager.collector,
         )
         host = webhook_cfg.get("host", "0.0.0.0")
         port = webhook_cfg.get("port", 5000)

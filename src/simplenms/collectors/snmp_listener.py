@@ -282,13 +282,9 @@ class SNMPTrapCollector(threading.Thread):
             from pysnmp.entity import config as snmp_config
             snmp_config.add_v1_system(self._engine, new_index, new_community)
 
-            delete_v1_system = (
-                getattr(snmp_config, "delete_v1_system", None)
-                or getattr(snmp_config, "del_v1_system", None)
-            )
-            if delete_v1_system and old_index != new_index:
+            if old_index != new_index:
                 try:
-                    delete_v1_system(self._engine, old_index)
+                    snmp_config.delete_v1_system(self._engine, old_index)
                 except Exception:
                     logger.debug("SNMP trap collector community did not have an existing entry to replace")
 

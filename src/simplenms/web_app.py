@@ -9,6 +9,7 @@ GET  /api/kpi          — aggregate counts
 GET  /api/sse          — Server-Sent Events stream for real-time updates
 """
 
+import ipaddress
 import json
 import logging
 import queue
@@ -19,6 +20,7 @@ from datetime import datetime, timezone
 
 import os
 from flask import Flask, Response, request, jsonify, g, send_from_directory
+from werkzeug.utils import secure_filename
 
 from mibs import (
     ensure_module_symlink,
@@ -144,7 +146,8 @@ sse_hub = SSEHub()
 # ---------------------------------------------------------------------------
 
 def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, snmp_collector=None,
-               config_path: str = "config.json", tls_reloader=None) -> Flask:
+               config_path: str = "config.json", tls_reloader=None,
+               syslog_collector=None, syslog_tls_collector_getter=None) -> Flask:
     """Create the unified Flask application."""
 
     app = Flask(__name__,
@@ -155,6 +158,8 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
     app.config["SNMP_COLLECTOR"] = snmp_collector
     app.config["CONFIG_PATH"] = config_path
     app.config["TLS_RELOADER"] = tls_reloader
+    app.config["SYSLOG_COLLECTOR"] = syslog_collector
+    app.config["SYSLOG_TLS_COLLECTOR_GETTER"] = syslog_tls_collector_getter
 
     # Suppress default Flask request logging
     wlog = logging.getLogger("werkzeug")
@@ -463,6 +468,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
                 "community": cfg.get("snmptrap", {}).get("community", "simplenms"),
                 "webhook_port": cfg.get("webhook", {}).get("port", 80),
                 "syslog_tls": tls_config_response(cfg),
+                "syslog_deny_ips": cfg.get("syslog", {}).get("deny_ips", []),
             })
         except Exception as e:
             return jsonify({"error": str(e)}), 500
@@ -473,6 +479,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
         community = body.get("community")
         webhook_port = body.get("webhook_port")
         tls_update = body.get("syslog_tls")
+        deny_ips = body.get("syslog_deny_ips")
         
         cfg, path = load_active_config()
         if not cfg and not os.path.exists(path):
@@ -512,6 +519,26 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
                 cfg["webhook"]["port"] = port_val
                 updated = True
                 port_changed = True
+
+        # 3. Update syslog source denylist if provided
+        if deny_ips is not None:
+            if not isinstance(deny_ips, list) or not all(isinstance(ip, str) for ip in deny_ips):
+                return jsonify({"error": "syslog_deny_ips must be a list of strings"}), 400
+            deny_ips = [ip.strip() for ip in deny_ips if ip.strip()]
+            for ip in deny_ips:
+                try:
+                    ipaddress.ip_address(ip)
+                except ValueError:
+                    return jsonify({"error": f"invalid IP address: {ip}"}), 400
+            if "syslog" not in cfg:
+                cfg["syslog"] = {}
+            if cfg["syslog"].get("deny_ips", []) != deny_ips:
+                cfg["syslog"]["deny_ips"] = deny_ips
+                updated = True
+                for collector in (app.config.get("SYSLOG_COLLECTOR"),
+                                  app.config.get("SYSLOG_TLS_COLLECTOR_GETTER", lambda: None)()):
+                    if collector and hasattr(collector, "update_deny_ips"):
+                        collector.update_deny_ips(deny_ips)
 
         if tls_update is not None:
             if not isinstance(tls_update, dict):
@@ -565,6 +592,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             "webhook_port": cfg.get("webhook", {}).get("port", 80),
             "port_changed": port_changed,
             "syslog_tls": tls_config_response(cfg),
+            "syslog_deny_ips": cfg.get("syslog", {}).get("deny_ips", []),
         })
 
     @app.route("/api/syslog-tls/certificates", methods=["POST"])
@@ -643,7 +671,6 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             except Exception as e:
                 return jsonify({"error": f"Failed to create MIB directory: {e}"}), 500
                  
-        from werkzeug.utils import secure_filename
         filename = secure_filename(f.filename)
         if not filename:
             filename = f"{real_name}.txt"
@@ -676,7 +703,6 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
 
     @app.route("/api/mibs/<filename>", methods=["DELETE"])
     def api_mibs_delete(filename):
-        from werkzeug.utils import secure_filename
         filename = secure_filename(filename)
         
         cfg, _ = load_active_config()

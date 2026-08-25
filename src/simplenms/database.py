@@ -8,6 +8,8 @@ import threading
 import time
 from datetime import datetime, timezone
 
+from metrics import runtime_metrics
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_SQL = """
@@ -155,7 +157,6 @@ class DBWriter(threading.Thread):
                 with self._stats_lock:
                     self._last_error = str(exc)
                 logger.exception("DB write failed — dropped %d events", len(batch))
-                from metrics import runtime_metrics
                 for item in batch:
                     runtime_metrics.inc_dropped(item.get("type", "webhook"))
 
