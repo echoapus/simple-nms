@@ -62,11 +62,14 @@ else
     cp "$PROJECT_ROOT"/config.json /opt/simple-nms/
 fi
 
-# Configure default SNMP Trap community if not already set in config.json
+# Configure SNMP Trap community
 echo "Configuring SNMP Trap community..."
-USER_COMMUNITY="simplenms"
-python3 -c "
+DEFAULT_COMMUNITY=$(python3 -c "import json; print(json.load(open('/opt/simple-nms/config.json')).get('snmptrap', {}).get('community', 'simplenms'))" 2>/dev/null || echo "simplenms")
+read -r -p "SNMP Trap community [$DEFAULT_COMMUNITY]: " USER_COMMUNITY || true
+USER_COMMUNITY="${USER_COMMUNITY:-$DEFAULT_COMMUNITY}"
+SNMP_COMMUNITY="$USER_COMMUNITY" python3 -c "
 import json
+import os
 path = '/opt/simple-nms/config.json'
 try:
     with open(path, 'r', encoding='utf-8') as f:
@@ -75,8 +78,7 @@ except Exception:
     data = {}
 if 'snmptrap' not in data:
     data['snmptrap'] = {}
-if 'community' not in data['snmptrap']:
-    data['snmptrap']['community'] = '$USER_COMMUNITY'
+data['snmptrap']['community'] = os.environ['SNMP_COMMUNITY']
 if 'syslog_tls' not in data:
     data['syslog_tls'] = {
         'enabled': False,

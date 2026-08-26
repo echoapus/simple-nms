@@ -148,6 +148,10 @@ def test_deployment_files():
         check("Dockerfile: non-root user", "USER simplenms" in content)
         check("Dockerfile: copies metrics module", "metrics.py" in content)
 
+    installer = open(os.path.join(PROJECT, "scripts", "install.sh")).read()
+    check("Installer: prompts for SNMP community", 'read -r -p "SNMP Trap community' in installer)
+    check("Installer: passes community safely", "os.environ['SNMP_COMMUNITY']" in installer)
+
     # docker-compose.yml
     dc = os.path.join(PROJECT, "docker-compose.yml")
     check("docker-compose.yml exists", os.path.exists(dc))
