@@ -1,5 +1,7 @@
 # User Guide
 
+This guide applies to **Simple NMS v26.8.26**.
+
 ## Generating Test Events
 
 ### Syslog
@@ -48,7 +50,7 @@ This sends an RFC 5424 event to a local test listener with a self-signed certifi
 ```bash
 python3 -c "
 import socket, ssl
-message = b'<165>1 2026-07-20T12:00:00Z router app 1 ID47 - TLS syslog test'
+message = b'<165>1 2026-08-26T12:00:00Z router app 1 ID47 - TLS syslog test'
 context = ssl._create_unverified_context()  # test certificates only
 with socket.create_connection(('127.0.0.1', 6514)) as raw:
     with context.wrap_socket(raw, server_hostname='localhost') as conn:
@@ -58,15 +60,22 @@ with socket.create_connection(('127.0.0.1', 6514)) as raw:
 
 For production, configure the sender to trust the uploaded server certificate. If mTLS is enabled, configure it with a client certificate signed by the uploaded CA.
 
+### Blocking Syslog sources
+
+Open **Settings → Syslog source denylist**, enter one complete IPv4 or IPv6 address per line, and save. The validated list immediately applies to both UDP and TLS collectors without a restart. Matching messages are discarded before parsing and storage. Clear the field and save to remove the denylist.
+
 ### Settings workflow
 
 - **Service** saves SNMP community and Web/Webhook port without touching TLS. Restart the service after changing the Web/Webhook port.
+- **Syslog source denylist** updates UDP and TLS source blocking immediately without restarting either listener.
 - **Syslog TLS** stages certificate uploads separately; only **Apply TLS changes** restarts that listener.
 - **Custom MIBs** upload and delete independently, so MIB work never interrupts Syslog TLS.
 
 ### SNMP Trap
 
 Using `snmptrap` (install: `sudo apt install snmp` on Debian/Ubuntu or `sudo dnf install net-snmp-utils` on RHEL/CentOS):
+
+Use the community selected during installation in place of `simplenms` in these examples.
 
 ```bash
 # SNMPv2c linkDown trap

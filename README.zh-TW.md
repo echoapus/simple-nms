@@ -1,5 +1,7 @@
 # Simple NMS — 簡易網路管理系統
 
+目前版本：**v26.8.26**。
+
 繁體中文專案說明。English overview: [README.md](README.md).
 
 ## 專案概述
@@ -10,7 +12,8 @@ Simple NMS 是一套輕量級的網路管理系統，設計目標是用最少的
 
 ### 核心能力
 
-- **三種事件來源**：Syslog（UDP 514，支援 RFC 3164 與 RFC 5424）、SNMP Trap（UDP 162）、Webhook（HTTP POST）
+- **四種事件輸入**：Syslog（UDP 514）、Syslog TLS（TCP 6514）、SNMP Trap（UDP 162）、Webhook（HTTP POST）
+- **即時來源封鎖**：Web UI 可驗證並即時套用 IPv4/IPv6 Syslog denylist，不需重啟 UDP/TLS listener
 - **統一儲存**：所有事件寫入單一 SQLite 資料庫，易於備份與查詢
 - **即時儀表板**：瀏覽器開啟即可使用，支援即時事件、視覺化統計圖表、過濾、搜尋、排序、亮/暗主題
 - **MIB 解析**：自動將 SNMP OID 翻譯為人類可讀的名稱（如 `IF-MIB::ifIndex`）
@@ -174,6 +177,8 @@ cd simple-nms
 sudo ./scripts/install.sh
 ```
 
+安裝程式會詢問 SNMP Trap community。首次安裝直接按 Enter 會使用 `simplenms`；重新安裝或升級時，直接按 Enter 會保留目前設定值。
+
 ### 第四步：設定 config.json
 
 ```json
@@ -189,7 +194,8 @@ sudo ./scripts/install.sh
     "syslog": {
         "enabled": true,
         "host": "0.0.0.0",
-        "port": 514
+        "port": 514,
+        "deny_ips": []
     },
     "syslog_tls": {
         "enabled": false,
@@ -221,6 +227,7 @@ sudo ./scripts/install.sh
 | `database.path` | SQLite 檔案位置（相對於執行目錄） |
 | `writer.batch_size` | 每次批次寫入的最大筆數 |
 | `writer.flush_interval_ms` | 未滿一批時的最長等待時間（毫秒） |
+| `syslog.deny_ips` | 要封鎖的 Syslog 來源 IPv4/IPv6 位址；UDP 與 TLS 共用 |
 | `snmptrap.community` | SNMP community string（需與網路設備一致） |
 | `snmptrap.mib_dirs` | ASN.1 MIB 檔案搜尋路徑（可放多個目錄） |
 | `webhook.port` | Web Server 監聽的 HTTP port |
@@ -229,7 +236,11 @@ sudo ./scripts/install.sh
 
 在 Web UI 的 **Settings → Syslog TLS** 上傳伺服器憑證與私鑰，啟用 TLS Syslog 後按 **Apply TLS changes**。系統會立即在 TCP 6514 啟動或重載 listener，既有 TLS Syslog 連線會中斷。若需要 mTLS，請先上傳 CA 憑證並啟用 **Require client certificate**。上傳檔案儲存在 `/opt/simple-nms/data/tls/`，私鑰不會由 API 回傳。
 
-新版 Settings 分成三個獨立區塊：**Service** 儲存 SNMP community 與 Web/Webhook port（修改 Web port 仍需重啟服務）；**Syslog TLS** 只在 Apply 時重載 TLS listener；**Custom MIBs** 可獨立上傳與刪除，不會影響 TLS。
+Settings 分成四個獨立區塊：**Service** 儲存 SNMP community 與 Web/Webhook port（修改 Web port 仍需重啟服務）；**Syslog source denylist** 即時更新 UDP/TLS 封鎖清單；**Syslog TLS** 只在 Apply 時重載 TLS listener；**Custom MIBs** 可獨立上傳與刪除，不會影響 TLS。
+
+### Syslog 來源封鎖清單
+
+在 **Settings → Syslog source denylist** 每行輸入一個完整 IPv4 或 IPv6 位址並儲存。系統會先驗證位址，然後立即套用至 UDP 514 與 TLS 6514 listener，不需重啟；符合的來源會在解析及寫入資料庫前被丟棄。清空欄位並儲存即可取消所有封鎖。
 
 如果 Simple NMS 放在同一台主機的 HAProxy 後面，建議讓 Web Server 只監聽 loopback：
 

@@ -2,9 +2,11 @@
 
 Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, and **Webhook** events into a single SQLite database, with a real-time web dashboard.
 
+Current release: **v26.8.26**.
+
 ## Features
 
-- **Three event collectors** running in parallel threads:
+- **Four event inputs** handled in one process:
   - Syslog (UDP 514) — RFC 3164 and RFC 5424 parsing (structured data to JSON, header metadata as tags)
   - SNMP Trap (UDP 162) — via pysnmp, varbinds stored as JSON
   - Webhook (HTTP POST `/webhook`) — JSON ingestion
@@ -20,11 +22,12 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
   - Dark/light theme toggle
   - Responsive layout (mobile-friendly)
   - Server-Sent Events (SSE) for live updates
-  - Task-oriented Settings page: independent Service, Syslog TLS, and custom MIB controls
+  - Task-oriented Settings page: independent Service, Syslog denylist, Syslog TLS, and custom MIB controls
 - **Single Python process** — no external web server, message broker, or database server required
 - **Reliability** — write failures are logged and tracked via dropped metrics
 - **Reverse-proxy aware webhooks** — direct clients use the socket peer IP; requests forwarded by a local proxy can use `X-Forwarded-For` / `X-Real-IP` for the original client IP
 - **Runtime SNMP community updates** — Web UI config changes update the running SNMP trap listener without restarting the service
+- **Live Syslog source denylist** — validated IPv4/IPv6 addresses are dropped by both UDP and TLS collectors before parsing or storage; Settings changes apply without restarting
 
 ## Quick Start
 
@@ -47,6 +50,8 @@ For a system install with virtualenv, permissions, MIB files, and systemd servic
 ```bash
 sudo ./scripts/install.sh
 ```
+
+The installer asks for the SNMP Trap community. Press Enter to keep the existing value during an upgrade or use `simplenms` on a first install.
 
 ## Reverse Proxy / HAProxy
 
@@ -107,6 +112,7 @@ Forwarded client IP headers are trusted only when the immediate peer is loopback
 - Use the Web UI **Clear Old Events** action or `POST /api/events/cleanup` for retention cleanup.
 - Use `cleanup.py` only when a local cron or container job is simpler than calling the API.
 - **Service** settings save the SNMP community and Web/Webhook port independently. A Web port change still requires a service restart.
+- **Syslog source denylist** accepts one IPv4 or IPv6 address per line and immediately updates both UDP and TLS collectors.
 - **Syslog TLS** uses a deliberate flow: upload the server certificate/private key (and CA certificate for mTLS), then select **Apply TLS changes**. This immediately reloads TLS and disconnects current TLS Syslog clients. Files are stored under `data/tls/`; private keys are never returned by the API.
 - **Custom MIBs** upload and delete independently; uploaded MIBs are loaded by the running resolver when possible.
 

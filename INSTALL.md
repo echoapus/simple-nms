@@ -1,5 +1,7 @@
 # Installation Guide
 
+This guide applies to **Simple NMS v26.8.26**.
+
 ## Prerequisites
 
 - **Python 3.9+** (Debian 12 ships with 3.11)
@@ -15,7 +17,7 @@
 sudo ./scripts/install.sh
 ```
 
-The installer creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, extracts bundled MIB files, installs the systemd unit, and starts the service.
+The installer asks for the SNMP Trap community, creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, extracts bundled MIB files, installs the systemd unit, and starts the service. Press Enter to keep the existing community during an upgrade or use `simplenms` on a first install.
 
 ### 2. Manual install
 
@@ -55,7 +57,8 @@ Edit `/opt/simple-nms/config.json`:
     "syslog": {
         "enabled": true,
         "host": "0.0.0.0",
-        "port": 514
+        "port": 514,
+        "deny_ips": []
     },
     "syslog_tls": {
         "enabled": false,
@@ -85,6 +88,21 @@ Edit `/opt/simple-nms/config.json`:
 Use the Web UI **Settings → Syslog TLS** card to upload the server certificate and private key, then choose **Apply TLS changes**. The listener starts or reloads immediately on TCP 6514 and disconnects active TLS clients. For mTLS, upload a CA certificate and enable **Require client certificate** before applying. The uploaded files are stored in `/opt/simple-nms/data/tls/`; keep this directory readable only by the service user.
 
 The **Service** card saves SNMP community and Web/Webhook settings separately. Changing the Web/Webhook port requires a service restart; TLS changes do not.
+
+### Syslog source denylist
+
+Use **Settings → Syslog source denylist** to enter one complete IPv4 or IPv6 address per line. Saving validates and immediately applies the list to both UDP and TLS collectors without restarting the service. Matching sources are dropped before parsing and storage. Clear the field and save to allow all sources again.
+
+The same setting is stored in `syslog.deny_ips`:
+
+```json
+"syslog": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 514,
+    "deny_ips": ["192.0.2.10", "2001:db8::10"]
+}
+```
 
 If Simple NMS is behind HAProxy on the same host, bind the web server to loopback and use a non-public backend port:
 
