@@ -72,34 +72,72 @@ backend simple_nms
 ```
 
 With this setup, set `webhook.host` to `127.0.0.1` and `webhook.port` to `5000`.
-Webhook events posted to `/webhook` will record the first valid IP from `X-Forwarded-For`.
+Webhook events posted to `/webhook` will record the first value from `X-Forwarded-For`.
 Forwarded client IP headers are trusted only when the immediate peer is loopback, so direct clients cannot spoof `src_ip` by sending their own forwarding headers.
 
 ## Architecture
 
+Simple NMS runs as one Python process. Collection, storage, queries, and live
+delivery are separate runtime paths inside that process:
+
+```mermaid
+flowchart LR
+    subgraph Sources[Event sources]
+        UDP[Syslog devices<br/>UDP 514]
+        TLS[Syslog devices<br/>TLS/TCP 6514]
+        SNMP[Network devices<br/>SNMP Trap UDP 162]
+        HOOK[External systems<br/>POST /webhook]
+    end
+
+    subgraph NMS[Single Simple NMS process]
+        SC[Syslog collectors<br/>parse + normalize]
+        NC[SNMP collector<br/>resolve MIB names + normalize]
+        WEB[Flask / Werkzeug<br/>UI + REST + webhook + SSE]
+        Q[Bounded write queue<br/>50,000 events]
+        WRITER[DB writer thread<br/>100 rows or 200 ms]
+        HUB[SSE hub<br/>per-browser queues]
+    end
+
+    DB[(SQLite events.db<br/>WAL mode)]
+    BROWSER[Browser dashboard]
+
+    UDP --> SC
+    TLS --> SC
+    SNMP --> NC
+    HOOK --> WEB
+    SC --> Q
+    NC --> Q
+    WEB -->|webhook event| Q
+    Q --> WRITER
+    WRITER -->|commit| DB
+    WRITER -->|only after commit| HUB
+    DB -->|filtered queries + analytics| WEB
+    HUB --> WEB
+    WEB -->|HTML / JSON / SSE| BROWSER
 ```
-┌─────────────┐  ┌──────────────┐  ┌──────────────┐
-│ Syslog :514 │  │ SNMP Trap    │  │ Webhook :80  │
-│ (UDP)       │  │ :162 (UDP)   │  │ (HTTP POST)  │
-└──────┬──────┘  └──────┬───────┘  └──────┬───────┘
-       │                │                  │
-       └────────┬───────┴──────────────────┘
-                │
-         ┌──────▼──────┐
-         │ Write Queue │  (thread-safe queue, 50k max)
-         └──────┬──────┘
-                │
-         ┌──────▼──────┐
-         │  DB Writer  │  (batch INSERT, WAL mode)
-         │  + SSE push │
-         └──────┬──────┘
-                │
-         ┌──────▼──────┐     ┌──────────────┐
-         │   SQLite    │     │   Web UI     │
-         │  events.db  │◄────│  REST API    │
-         └─────────────┘     │  SSE stream  │
-                             └──────────────┘
-```
+
+### Event lifecycle
+
+1. A collector parses an incoming message into the common `events` shape.
+2. The collector places it in the shared 50,000-event queue without blocking.
+3. The DB writer drains the queue in batches and commits to SQLite.
+4. Only successfully committed events are published to browser SSE clients.
+5. The UI initially reads SQLite through REST, then uses SSE as a refresh signal
+   for newly committed events.
+
+### Component boundaries
+
+| Component | Owns | Does not own |
+|-----------|------|--------------|
+| Syslog collectors | UDP/TLS sockets, RFC 3164/5424 parsing, source denylist | Database connections or UI delivery |
+| SNMP collector | Trap receiver, community, MIB/OID resolution | Database writes |
+| DB writer | The only queued write path, batching, write metrics | API reads |
+| Web application | Webhook input, REST queries, Settings API, static UI, SSE connections | Collector event parsing |
+| SQLite | Durable event history and query indexes | Retention scheduling |
+
+The HTTP listener serves the dashboard, REST API, Settings API, SSE, and webhook
+on the same host and port. There is no built-in authentication, so expose it only
+on a trusted management network or place an authenticated reverse proxy in front.
 
 ## Documentation
 

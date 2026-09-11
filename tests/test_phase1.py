@@ -51,6 +51,10 @@ def test_syslog_parser():
     check("RFC 5424: varbinds parsed JSON", '"exampleSDID@32473"' in e5["varbinds"] and '"iut": "3"' in e5["varbinds"])
     check("RFC 5424: payload parsed with prefix", e5["payload"] == "evtsys[1234]: ID47: An application event log entry...")
 
+    offset_msg = b'<165>1 2026-09-10T16:00:00+08:00 router app 1 ID47 - offset test'
+    e6 = _parse_syslog(offset_msg, ("10.0.0.6", 514))
+    check("RFC 5424: timezone offset normalized to UTC", e6["ts"] == "2026-09-10T08:00:00.000000")
+
 
 
 def test_webhook():

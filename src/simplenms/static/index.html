@@ -1966,8 +1966,7 @@ tbody td {
   function formatTimelineLabel(timeStr, scale) {
     if (!timeStr) return '';
     try {
-      const normalized = timeStr.replace(' ', 'T');
-      const d = new Date(normalized);
+      const d = parseUtcTimestamp(timeStr.replace(' ', 'T'));
       if (scale === 'day') {
         return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       } else {

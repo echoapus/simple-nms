@@ -104,11 +104,10 @@ def _parse_syslog(data: bytes, addr: tuple) -> dict:
             if ts_str and ts_str != "-":
                 try:
                     # ISO 8601 formatting replacement (e.g. trailing 'Z' to '+00:00')
-                    cutoff = ts_str
-                    if cutoff.endswith("Z"):
-                        cutoff = cutoff[:-1] + "+00:00"
-                    parsed_dt = datetime.fromisoformat(cutoff)
-                    event_ts = parsed_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
+                    parsed_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if parsed_dt.tzinfo is None:
+                        parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                    event_ts = parsed_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
                 except ValueError:
                     pass
 

@@ -2,6 +2,48 @@
 
 This guide applies to **Simple NMS v26.8.26**.
 
+## How Events Move Through Simple NMS
+
+All inputs use the same storage pipeline, so an event is visible in the live UI
+only after SQLite accepts it:
+
+```mermaid
+sequenceDiagram
+    participant Source as Device / external system
+    participant Collector as Syslog / SNMP / Webhook
+    participant Queue as Write queue
+    participant Writer as DB writer
+    participant DB as SQLite
+    participant Web as REST API / SSE hub
+    participant UI as Browser
+
+    Source->>Collector: Send event
+    Collector->>Collector: Parse into common event fields
+    Collector->>Queue: Enqueue without blocking
+    Writer->>Queue: Read batch
+    Writer->>DB: Commit transaction
+    Writer->>Web: Publish SSE after commit
+    Web-->>UI: New-event notification
+    UI->>Web: Request current events
+    Web->>DB: Run filtered query
+    DB-->>Web: Return durable rows
+    Web-->>UI: Return JSON
+```
+
+The practical consequences are:
+
+- Syslog, SNMP Trap, and webhook events all appear in the same table and filters.
+- The REST API reads durable history from SQLite; SSE tells the UI when to refresh.
+- The queue absorbs short traffic bursts. If its 50,000-event capacity is exhausted,
+  new input is dropped and reported in `/health` metrics.
+- Browser disconnects do not interrupt collection or storage. `EventSource`
+  reconnects automatically and the UI reloads current data from REST.
+
+The dashboard, API, Settings, SSE, and `/webhook` share one HTTP listener. There
+is no built-in authentication. Use a trusted management network or an
+authenticated reverse proxy, especially because Settings and cleanup operations
+change persistent state.
+
 ## Generating Test Events
 
 ### Syslog
@@ -284,7 +326,7 @@ curl -X POST http://localhost/webhook \
 
 Response: `202 Accepted` with `{"status": "ok"}`
 
-When Simple NMS is behind a local reverse proxy such as HAProxy, webhook `src_ip` is taken from the first valid IP in `X-Forwarded-For`, falling back to `X-Real-IP` and then the socket peer IP. Forwarded IP headers are trusted only when the immediate peer is loopback. Direct clients can still post to `/webhook`, but their forged forwarding headers are ignored.
+When Simple NMS is behind a local reverse proxy such as HAProxy, webhook `src_ip` is taken from the first value in `X-Forwarded-For`, falling back to `X-Real-IP` and then the socket peer IP. Forwarded IP headers are trusted only when the immediate peer is loopback. Direct clients can still post to `/webhook`, but their forged forwarding headers are ignored.
 
 ### GET /health
 

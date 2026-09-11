@@ -4,10 +4,62 @@ This guide applies to **Simple NMS v26.8.26**.
 
 ## Prerequisites
 
-- **Python 3.9+** (Debian 12 ships with 3.11)
+- **Python 3.10+** (Debian 12 ships with 3.11)
 - **pip** (Python package manager)
 - **snmptrap** for local SNMP testing (`snmp` on Debian/Ubuntu, `net-snmp-utils` on RHEL/CentOS)
 - No external database, web server, or message broker required
+
+## Deployment Architecture
+
+All enabled listeners run inside one Simple NMS process. Choose which ports are
+reachable at the host firewall or reverse proxy; they are not separate services.
+
+```mermaid
+flowchart LR
+    subgraph SOURCES[Clients and event sources]
+        DEVICES[Network devices]
+        SYSTEMS[External systems]
+        ADMINS[Operators]
+    end
+
+    subgraph PROCESS[One Simple NMS process]
+        SYSLOG[Syslog collector]
+        TLS[Syslog TLS collector]
+        SNMP[SNMP Trap collector]
+        HTTP[HTTP listener]
+        SYSLOG --> Q[50,000-event queue]
+        TLS --> Q
+        SNMP --> Q
+        HTTP -->|webhook events| Q
+        Q --> WRITER[DB writer]
+        WRITER --> DB[(data/events.db)]
+        DB --> HTTP
+        WRITER --> SSE[SSE hub]
+        SSE --> HTTP
+    end
+
+    DEVICES -->|UDP 514| SYSLOG
+    DEVICES -->|TCP 6514 + TLS| TLS
+    DEVICES -->|UDP 162| SNMP
+    SYSTEMS -->|POST /webhook| HTTP
+    ADMINS -->|UI / REST / SSE| HTTP
+```
+
+| Port | Protocol | Purpose | Typical exposure |
+|------|----------|---------|------------------|
+| 80 | TCP/HTTP | Dashboard, REST API, Settings, SSE, webhook | Management network or authenticated reverse proxy |
+| 514 | UDP | Plain Syslog input | Network devices only |
+| 162 | UDP | SNMP Trap input | Network devices only |
+| 6514 | TCP/TLS | Optional encrypted Syslog input | Network devices only |
+
+The HTTP surface has no built-in authentication and includes configuration,
+certificate upload, MIB management, and event deletion. Do not expose it directly
+to an untrusted network. For a reverse-proxy deployment, bind Simple NMS to
+`127.0.0.1:5000` and enforce authentication and TLS at the proxy.
+
+The only persistent runtime directory is `data/`: it contains the SQLite database,
+the Web UI configuration overlay, uploaded TLS files, and custom MIBs. Back up the
+whole directory rather than only `events.db` if you need a complete restore.
 
 ## Option A: Bare-Metal Install (Debian 12 / Ubuntu 22.04)
 

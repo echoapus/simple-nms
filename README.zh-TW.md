@@ -17,7 +17,7 @@ Simple NMS 是一套輕量級的網路管理系統，設計目標是用最少的
 - **統一儲存**：所有事件寫入單一 SQLite 資料庫，易於備份與查詢
 - **即時儀表板**：瀏覽器開啟即可使用，支援即時事件、視覺化統計圖表、過濾、搜尋、排序、亮/暗主題
 - **MIB 解析**：自動將 SNMP OID 翻譯為人類可讀的名稱（如 `IF-MIB::ifIndex`）
-- **低外部服務需求**：僅需 Python 3.9+ 與少量 pip 套件，不需要外部資料庫或 message broker
+- **低外部服務需求**：僅需 Python 3.10+ 與少量 pip 套件，不需要外部資料庫或 message broker
 
 ---
 
@@ -25,35 +25,54 @@ Simple NMS 是一套輕量級的網路管理系統，設計目標是用最少的
 
 ### 整體架構圖
 
+Simple NMS 只有一個 Python 進程，但收集、寫入、查詢與即時推送是四條分工明確的路徑：
+
+```mermaid
+flowchart LR
+    subgraph Sources[事件來源]
+        UDP[Syslog 設備<br/>UDP 514]
+        TLS[Syslog 設備<br/>TLS/TCP 6514]
+        SNMP[網路設備<br/>SNMP Trap UDP 162]
+        HOOK[外部系統<br/>POST /webhook]
+    end
+
+    subgraph NMS[單一 Simple NMS 進程]
+        SC[Syslog Collectors<br/>解析與標準化]
+        NC[SNMP Collector<br/>MIB 解析與標準化]
+        WEB[Flask / Werkzeug<br/>UI + REST + Webhook + SSE]
+        Q[有界寫入佇列<br/>最多 50,000 筆]
+        WRITER[DB Writer<br/>100 筆或 200 ms 一批]
+        HUB[SSE Hub<br/>每個瀏覽器獨立佇列]
+    end
+
+    DB[(SQLite events.db<br/>WAL mode)]
+    BROWSER[瀏覽器儀表板]
+
+    UDP --> SC
+    TLS --> SC
+    SNMP --> NC
+    HOOK --> WEB
+    SC --> Q
+    NC --> Q
+    WEB -->|Webhook event| Q
+    Q --> WRITER
+    WRITER -->|commit| DB
+    WRITER -->|commit 成功後才推送| HUB
+    DB -->|過濾查詢與統計| WEB
+    HUB --> WEB
+    WEB -->|HTML / JSON / SSE| BROWSER
 ```
-                        ┌─────────────────────────────────────────┐
-                        │            Simple NMS Process           │
-                        │                                         │
-  ┌──────────┐          │  ┌──────────────┐                       │
-  │ 網路設備  │──UDP 514──▶│ Syslog       │                       │
-  │ (Router,  │          │  │ Collector    │                       │
-  │  Switch)  │──UDP 162──▶│ SNMP Trap    │──┐                    │
-  └──────────┘          │  │ Collector    │  │                    │
-                        │  └──────────────┘  │                    │
-  ┌──────────┐          │                    │  ┌──────────────┐  │
-  │ 外部服務  │──HTTP POST▶│ Webhook       │──┼─▶│ Write Queue  │  │
-  │ (Grafana, │          │  │ Collector    │  │  │ (50K buffer) │  │
-  │  CI/CD)   │          │  └──────────────┘  │  └──────┬───────┘  │
-  └──────────┘          │                    │         │          │
-                        │                    │  ┌──────▼───────┐  │
-  ┌──────────┐          │                    │  │  DB Writer   │  │
-  │ 瀏覽器   │◀─HTTP 80──│  Web Server       │  │  (批次寫入)   │  │
-  │          │◀───SSE────│  (Flask)          │  └──────┬───────┘  │
-  └──────────┘          │  ├─ GET /          │         │          │
-                        │  ├─ GET /api/*     │         │ SSE 推送  │
-                        │  ├─ GET /api/sse   │◀────────┘          │
-                        │  └─ POST /webhook  │                    │
-                        │                    │  ┌──────────────┐  │
-                        │                    └─▶│   SQLite DB  │  │
-                        │                       │  (WAL mode)  │  │
-                        │                       └──────────────┘  │
-                        └─────────────────────────────────────────┘
-```
+
+### 元件邊界
+
+| 元件 | 負責 | 不負責 |
+|------|------|--------|
+| Syslog Collectors | UDP/TLS socket、RFC 3164/5424 解析、來源 denylist | 直接操作資料庫 |
+| SNMP Collector | Trap 接收、community、MIB/OID 解析 | 直接操作資料庫 |
+| Write Queue | 吸收短時間流量尖峰，容量 50,000 筆 | 永久保存事件 |
+| DB Writer | 唯一的佇列寫入路徑、批次 transaction、寫入指標 | API 查詢 |
+| Web Application | Webhook、REST、Settings、靜態 UI、SSE 連線 | Syslog/SNMP 協定解析 |
+| SQLite | 永久事件紀錄與查詢索引 | 自動排程資料保留 |
 
 ### 執行緒模型
 
@@ -67,13 +86,25 @@ Simple NMS 是一套輕量級的網路管理系統，設計目標是用最少的
 | Thread 3 | `web-server` | Werkzeug HTTP Server，處理 Web UI、REST API、Webhook、SSE |
 | Thread 4 | `db-writer` | 從 Write Queue 取出事件，批次 INSERT 到 SQLite，成功後觸發 SSE 廣播 |
 
+啟用 Syslog TLS 時另有 `syslog-tls-collector` 接受 TCP 連線，每個已完成 TLS handshake 的 client 由獨立 daemon thread 讀取 frame。
+
 ### 資料流
 
 ```
-事件進入 → Collector 解析 → Queue.put() → DB Writer 批次 INSERT → SQLite
-                                                    │
-                                                    └→ SSE Hub 廣播 → 所有連線的瀏覽器
+事件進入 → Collector 解析成共同欄位 → Queue.put_nowait()
+                                      → DB Writer 批次 INSERT → SQLite
+                                                               → SSE Hub → 瀏覽器
 ```
+
+關鍵行為：
+
+1. Collector 不直接寫 SQLite，因此不同協定共用同一個寫入順序與錯誤處理。
+2. Queue 滿時不阻塞網路接收；新事件會被丟棄並增加 dropped metric。
+3. SSE 只在 SQLite commit 成功後發布，所以即時畫面對應到已儲存的事件。
+4. REST API 從 SQLite 查歷史資料；SSE 只負責新事件通知，不取代歷史查詢。
+5. 關閉服務時，DB Writer 會先清空 queue，再關閉資料庫連線。
+
+HTTP listener 在同一個 host/port 提供 UI、REST、Settings、SSE 與 Webhook。系統沒有內建登入驗證，請只開放於可信任的管理網路，或在前方放置具驗證功能的 reverse proxy。
 
 ### 資料庫結構
 
@@ -146,7 +177,7 @@ simple-nms/
 ### 前提條件
 
 - Debian 12 或 Ubuntu 22.04（其他 Linux 發行版亦可）
-- Python 3.9+（Debian 12 預裝 3.11）
+- Python 3.10+（Debian 12 預裝 3.11）
 - pip3
 
 ### 第一步：安裝系統套件
@@ -267,7 +298,7 @@ backend simple_nms
     server simple_nms_1 127.0.0.1:5000 check
 ```
 
-Webhook 的 `src_ip` 在本機 HAProxy 轉送時會使用 `X-Forwarded-For` 的第一個有效 IP；若沒有 proxy，則使用直接連線的來源 IP。Simple NMS 只在 immediate peer 是 loopback 時信任 `X-Forwarded-For` / `X-Real-IP`，避免外部直接連線偽造來源 IP。
+Webhook 的 `src_ip` 在本機 HAProxy 轉送時會使用 `X-Forwarded-For` 的第一個值；若沒有 proxy，則使用直接連線的來源 IP。Simple NMS 只在 immediate peer 是 loopback 時信任 `X-Forwarded-For` / `X-Real-IP`，避免外部直接連線偽造來源 IP。
 
 ### 第五步：手動測試啟動
 
@@ -553,13 +584,14 @@ set snmp trap-group nms-traps version v2
 
 ## 測試
 
-專案包含四個 validation script：
+專案包含五個 validation script：
 
 ```bash
 python3 tests/test_phase1.py    # Syslog 解析、Webhook 驗證、DB Writer、效能基準
 python3 tests/test_phase2.py    # REST API 過濾/分頁/排序、SSE Hub、端對端整合
 python3 tests/test_phase3.py    # Web UI、設定 API、MIB API
 python3 tests/test_phase4.py    # 可靠性、清除腳本、部署檔案、community 熱更新
+python3 tests/test_syslog_tls.py # TLS framing、連線與 listener hot reload
 ```
 
 效能基準測試結果：DB Writer 批次寫入達 **5,600+ events/sec**，遠超 RFP 要求的 500 events/sec。
