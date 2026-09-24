@@ -2,12 +2,12 @@
 """Data retention cleanup — delete events older than N days.
 
 Usage:
-    python3 cleanup.py                  # default: 30 days
-    python3 cleanup.py --days 7         # keep only last 7 days
-    python3 cleanup.py --dry-run        # show what would be deleted
+    python3 scripts/cleanup.py                  # default: 30 days
+    python3 scripts/cleanup.py --days 7         # keep only last 7 days
+    python3 scripts/cleanup.py --dry-run        # show what would be deleted
 
 Cron example (daily at 03:00):
-    0 3 * * * cd /opt/simple-nms && python3 cleanup.py --days 30 >> /var/log/simple-nms-cleanup.log 2>&1
+    0 3 * * * cd /opt/simple-nms && python3 scripts/cleanup.py --days 30 >> /var/log/simple-nms-cleanup.log 2>&1
 """
 
 import argparse

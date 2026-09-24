@@ -75,8 +75,9 @@ The installer asks for the SNMP Trap community, creates the `simplenms` user, co
 
 ```bash
 sudo useradd -r -m -d /opt/simple-nms -s /usr/sbin/nologin simplenms
-sudo mkdir -p /opt/simple-nms/data
-sudo cp -r src/simplenms/* cleanup.py requirements.txt config.json /opt/simple-nms/
+sudo mkdir -p /opt/simple-nms/data /opt/simple-nms/scripts
+sudo cp -r src/simplenms/* requirements.txt config.example.json /opt/simple-nms/
+sudo cp scripts/cleanup.py /opt/simple-nms/scripts/
 sudo python3 -m venv /opt/simple-nms/venv
 sudo /opt/simple-nms/venv/bin/pip install -r /opt/simple-nms/requirements.txt
 sudo chown -R root:simplenms /opt/simple-nms
@@ -94,7 +95,12 @@ Standard library (no install needed): `sqlite3`, `socket`, `queue`, `threading`,
 
 ### 3. Configure
 
-Edit `/opt/simple-nms/config.json`:
+Copy the example config and edit `/opt/simple-nms/config.json`:
+
+```bash
+sudo cp /opt/simple-nms/config.example.json /opt/simple-nms/config.json
+sudo nano /opt/simple-nms/config.json
+```
 
 ```json
 {
@@ -220,7 +226,7 @@ sudo crontab -u simplenms -e
 Add:
 
 ```cron
-0 3 * * * cd /opt/simple-nms && python3 cleanup.py --days 30 >> /var/log/simple-nms-cleanup.log 2>&1
+0 3 * * * cd /opt/simple-nms && python3 scripts/cleanup.py --days 30 >> /var/log/simple-nms-cleanup.log 2>&1
 ```
 
 ### 8. Firewall
@@ -267,7 +273,7 @@ Simple NMS trusts `X-Forwarded-For` and `X-Real-IP` only when the immediate peer
 ### 1. Build and run
 
 ```bash
-# Edit config.json first if you need custom ports or MIB paths
+# Copy config.example.json to config.json and edit it first if you need custom ports or MIB paths
 docker compose up -d
 ```
 
@@ -299,7 +305,7 @@ curl -X POST http://localhost/api/events/cleanup \
   -d '{"before_ts":"2026-01-01T00:00:00"}'
 
 # Or run the bundled CLI inside the container
-docker compose exec simple-nms python3 cleanup.py --days 30
+docker compose exec simple-nms python3 scripts/cleanup.py --days 30
 ```
 
 ---
@@ -309,7 +315,7 @@ docker compose exec simple-nms python3 cleanup.py --days 30
 For testing on non-privileged ports without root:
 
 ```bash
-# Edit config.json: set ports to 8080 (webhook), 5514 (syslog), 1162 (snmptrap)
+# Copy config.example.json to config.json and set ports to 8080 (webhook), 5514 (syslog), 1162 (snmptrap)
 cd src/simplenms
 python3 main.py ../../config.json
 ```

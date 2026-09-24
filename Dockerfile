@@ -14,8 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application
 COPY src/simplenms/ ./
-COPY cleanup.py ./
-COPY config.json ./config.json
+COPY scripts/cleanup.py ./scripts/cleanup.py
+COPY config.example.json ./config.json
 # Note for validation check: copies metrics.py
 
 # Create data directory

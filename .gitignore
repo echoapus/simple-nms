@@ -38,3 +38,4 @@ env/
 Thumbs.db
 *.swp
 *.swo
+config.json

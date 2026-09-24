@@ -189,14 +189,13 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
 
     def event_type_counts(where: str, params: list) -> tuple[int, dict]:
         db = get_db()
-        total = db.execute(f"SELECT COUNT(*) FROM events {where}", params).fetchone()[0]
         rows = db.execute(
             f"SELECT type, COUNT(*) as count FROM events {where} GROUP BY type", params
         ).fetchall()
         counts = {r["type"]: r["count"] for r in rows}
         for event_type in ("syslog", "snmptrap", "webhook"):
             counts.setdefault(event_type, 0)
-        return total, counts
+        return sum(counts.values()), counts
 
     # ------------------------------------------------------------------
     # Webhook endpoint (from Phase 1)

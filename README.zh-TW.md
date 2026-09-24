@@ -133,9 +133,9 @@ HTTP listener 在同一個 host/port 提供 UI、REST、Settings、SSE 與 Webho
 
 ```
 simple-nms/
-├── config.json                  # 外部化設定（所有 port、MIB 路徑）
+├── config.example.json          # 外部化設定範例 (請複製為 config.json)（所有 port、MIB 路徑）
 ├── requirements.txt             # Python 依賴
-├── cleanup.py                   # 資料保留清除腳本
+├── scripts/cleanup.py           # 資料保留清除腳本
 ├── scripts/
 │   ├── install.sh               # 安裝到 /opt/simple-nms 並建立 systemd 服務
 │   ├── uninstall.sh             # 移除 systemd 服務與安裝目錄
@@ -159,8 +159,8 @@ simple-nms/
 │
 ├── README.md                    # English project overview
 ├── README.zh-TW.md              # 繁體中文專案說明
-├── INSTALL.md                   # 安裝指南
-├── USER.md                      # 使用者手冊
+├── docs/INSTALL.md              # 安裝指南
+├── docs/USER.md                 # 使用者手冊
 │
 ├── tests/
 │   ├── test_phase1.py           # 測試：收集器 + DB Writer
@@ -518,13 +518,13 @@ curl -X POST http://localhost/api/events/cleanup \
 
 ```bash
 # 預覽（不刪除）
-python3 cleanup.py --days 30 --dry-run
+python3 scripts/cleanup.py --days 30 --dry-run
 
 # 執行清除
-python3 cleanup.py --days 30
+python3 scripts/cleanup.py --days 30
 
 # 搭配 cron 每天凌晨 3 點自動清除
-0 3 * * * cd /opt/simple-nms && python3 cleanup.py --days 30
+0 3 * * * cd /opt/simple-nms && python3 scripts/cleanup.py --days 30
 ```
 
 ---

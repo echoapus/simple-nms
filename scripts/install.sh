@@ -49,9 +49,9 @@ else
 fi
 
 echo "Deploying to /opt/simple-nms..."
-mkdir -p /opt/simple-nms/data
+mkdir -p /opt/simple-nms/data /opt/simple-nms/scripts
 cp -r "$PROJECT_ROOT"/src/simplenms/* /opt/simple-nms/
-cp "$PROJECT_ROOT"/cleanup.py /opt/simple-nms/
+cp "$PROJECT_ROOT"/scripts/cleanup.py /opt/simple-nms/scripts/
 cp "$PROJECT_ROOT"/requirements.txt /opt/simple-nms/
 test -f "$PROJECT_ROOT"/resources/mibs.tar.gz && cp "$PROJECT_ROOT"/resources/mibs.tar.gz /opt/simple-nms/ || true
 
@@ -59,7 +59,7 @@ test -f "$PROJECT_ROOT"/resources/mibs.tar.gz && cp "$PROJECT_ROOT"/resources/mi
 if [ -f /opt/simple-nms/config.json ]; then
     echo "Existing config.json found — preserving user settings."
 else
-    cp "$PROJECT_ROOT"/config.json /opt/simple-nms/
+    cp "$PROJECT_ROOT"/config.example.json /opt/simple-nms/config.json
 fi
 
 # Configure SNMP Trap community
@@ -112,7 +112,7 @@ find /opt/simple-nms -type d -exec chmod 750 {} +
 find /opt/simple-nms -type f -exec chmod 640 {} +
 
 # 3. Ensure entrypoints and venv binaries are executable by the group
-chmod 750 /opt/simple-nms/main.py /opt/simple-nms/cleanup.py
+chmod 750 /opt/simple-nms/main.py /opt/simple-nms/scripts/cleanup.py
 find /opt/simple-nms/venv/bin -type f -exec chmod 750 {} +
 
 # 4. Make the persistent data directory fully owned and writable by the simplenms user

@@ -100,7 +100,7 @@ def test_cleanup_script():
 
     # Dry run
     result = subprocess.run(
-        [sys.executable, os.path.join(PROJECT, "cleanup.py"), "--db", db_clean, "--days", "30", "--dry-run"],
+        [sys.executable, os.path.join(PROJECT, "scripts", "cleanup.py"), "--db", db_clean, "--days", "30", "--dry-run"],
         capture_output=True, text=True)
     check("Dry run exits 0", result.returncode == 0)
     check("Dry run reports 2 events", "2" in result.stdout and "DRY RUN" in result.stdout,
@@ -108,7 +108,7 @@ def test_cleanup_script():
 
     # Actual cleanup
     result = subprocess.run(
-        [sys.executable, os.path.join(PROJECT, "cleanup.py"), "--db", db_clean, "--days", "30"],
+        [sys.executable, os.path.join(PROJECT, "scripts", "cleanup.py"), "--db", db_clean, "--days", "30"],
         capture_output=True, text=True)
     check("Cleanup exits 0", result.returncode == 0)
     check("Cleanup reports deletion", "Deleted 2" in result.stdout,
@@ -170,8 +170,8 @@ def test_documentation():
     for fname, checks in [
         ("README.md", ["Syslog", "SNMP Trap", "Webhook", "SQLite", "Quick Start", "README.zh-TW.md"]),
         ("README.zh-TW.md", ["簡易網路管理系統", "系統架構", "資料庫結構"]),
-        ("INSTALL.md", ["pip install", "systemd", "config.json", "CAP_NET_BIND_SERVICE", "Docker"]),
-        ("USER.md", ["logger", "snmptrap", "curl", "/api/events", "/api/kpi", "/api/sse"]),
+        ("docs/INSTALL.md", ["pip install", "systemd", "config.example.json", "CAP_NET_BIND_SERVICE", "Docker"]),
+        ("docs/USER.md", ["logger", "snmptrap", "curl", "/api/events", "/api/kpi", "/api/sse"]),
     ]:
         fpath = os.path.join(PROJECT, fname)
         check(f"{fname} exists", os.path.exists(fpath))
@@ -183,7 +183,7 @@ def test_documentation():
 
 def test_config_port80():
     print("\n=== Config Default Port ===")
-    cfg_path = os.path.join(PROJECT, "config.json")
+    cfg_path = os.path.join(PROJECT, "config.example.json")
     with open(cfg_path) as f:
         cfg = json.load(f)
     check("Webhook port defaults to 80", cfg["webhook"]["port"] == 80)
@@ -212,7 +212,7 @@ def test_snmp_community_update_script():
 
     test_dir = tempfile.mkdtemp(prefix="snms_community_check_")
     cfg_path = os.path.join(test_dir, "config.json")
-    with open(os.path.join(PROJECT, "config.json"), encoding="utf-8") as f:
+    with open(os.path.join(PROJECT, "config.example.json"), encoding="utf-8") as f:
         cfg = json.load(f)
     cfg["database"]["path"] = os.path.join(test_dir, "events.db")
     cfg["writer"] = {"batch_size": 10, "flush_interval_ms": 100}

@@ -141,14 +141,14 @@ on a trusted management network or place an authenticated reverse proxy in front
 
 ## Documentation
 
-- [INSTALL.md](INSTALL.md) — Installation and deployment guide
-- [USER.md](USER.md) — Usage guide with test examples
+- [INSTALL.md](docs/INSTALL.md) — Installation and deployment guide
+- [USER.md](docs/USER.md) — Usage guide with test examples
 - [README.zh-TW.md](README.zh-TW.md) — Traditional Chinese project overview
 
 ## Operations
 
 - Use the Web UI **Clear Old Events** action or `POST /api/events/cleanup` for retention cleanup.
-- Use `cleanup.py` only when a local cron or container job is simpler than calling the API.
+- Use `scripts/cleanup.py` only when a local cron or container job is simpler than calling the API.
 - **Service** settings save the SNMP community and Web/Webhook port independently. A Web port change still requires a service restart.
 - **Syslog source denylist** accepts one IPv4 or IPv6 address per line and immediately updates both UDP and TLS collectors.
 - **Syslog TLS** uses a deliberate flow: upload the server certificate/private key (and CA certificate for mTLS), then select **Apply TLS changes**. This immediately reloads TLS and disconnects current TLS Syslog clients. Files are stored under `data/tls/`; private keys are never returned by the API.

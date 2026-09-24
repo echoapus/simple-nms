@@ -363,13 +363,13 @@ For cron or one-off local maintenance, use the bundled cleanup script:
 
 ```bash
 # Preview what would be deleted
-python3 cleanup.py --days 30 --dry-run
+python3 scripts/cleanup.py --days 30 --dry-run
 
 # Delete events older than 30 days
-python3 cleanup.py --days 30
+python3 scripts/cleanup.py --days 30
 
 # Delete events older than 7 days
-python3 cleanup.py --days 7
+python3 scripts/cleanup.py --days 7
 ```
 
 ---

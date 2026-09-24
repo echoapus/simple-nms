@@ -30,6 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_events_ts      ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_events_type    ON events(type);
 CREATE INDEX IF NOT EXISTS idx_events_src_ip  ON events(src_ip);
 CREATE INDEX IF NOT EXISTS idx_events_severity ON events(severity);
+CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(type, ts);
 """
 
 INSERT_SQL = """
