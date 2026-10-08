@@ -148,7 +148,8 @@ on a trusted management network or place an authenticated reverse proxy in front
 ## Operations
 
 - Use the Web UI **Clear Old Events** action or `POST /api/events/cleanup` for retention cleanup.
-- Use `scripts/cleanup.py` only when a local cron or container job is simpler than calling the API.
+- Set `retention.enabled` in `config.json` for automatic daily cleanup.
+- Use `GET /api/status` for collector, writer, queue, and retention status.
 - **Service** settings save the SNMP community and Web/Webhook port independently. A Web port change still requires a service restart.
 - **Syslog source denylist** accepts one IPv4 or IPv6 address per line and immediately updates both UDP and TLS collectors.
 - **Syslog TLS** uses a deliberate flow: upload the server certificate/private key (and CA certificate for mTLS), then select **Apply TLS changes**. This immediately reloads TLS and disconnects current TLS Syslog clients. Files are stored under `data/tls/`; private keys are never returned by the API.
@@ -168,12 +169,6 @@ The SNMP community hot-update check can also be run against a live service:
 
 ```bash
 ./scripts/check_community_update.py --base-url http://127.0.0.1 --trap-host 127.0.0.1 --trap-port 162 --restore
-```
-
-Verify a configured TLS Syslog listener:
-
-```bash
-./scripts/check_syslog_tls.py --base-url http://127.0.0.1 --tls-host 127.0.0.1 --tls-port 6514
 ```
 
 ## License

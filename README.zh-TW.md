@@ -135,7 +135,6 @@ HTTP listener 在同一個 host/port 提供 UI、REST、Settings、SSE 與 Webho
 simple-nms/
 ├── config.example.json          # 外部化設定範例 (請複製為 config.json)（所有 port、MIB 路徑）
 ├── requirements.txt             # Python 依賴
-├── scripts/cleanup.py           # 資料保留清除腳本
 ├── scripts/
 │   ├── install.sh               # 安裝到 /opt/simple-nms 並建立 systemd 服務
 │   ├── uninstall.sh             # 移除 systemd 服務與安裝目錄
@@ -167,7 +166,6 @@ simple-nms/
 │   ├── test_phase2.py           # 測試：REST API + SSE
 │   ├── test_phase3.py           # 測試：Web UI 結構完整性、設定/MIB API
 │   └── test_phase4.py           # 測試：可靠性、部署檔案、community 熱更新
-└── resources/mibs.tar.gz        # 內建 MIB 檔案包
 ```
 
 ---
@@ -512,19 +510,6 @@ DB Writer 在 SQLite 寫入失敗時，會立即記錄錯誤日誌並增加丟�
 curl -X POST http://localhost/api/events/cleanup \
   -H "Content-Type: application/json" \
   -d '{"before_ts":"2026-01-01T00:00:00.000"}'
-```
-
-若要用 cron 或本機維護指令，也可以使用 `cleanup.py`：
-
-```bash
-# 預覽（不刪除）
-python3 scripts/cleanup.py --days 30 --dry-run
-
-# 執行清除
-python3 scripts/cleanup.py --days 30
-
-# 搭配 cron 每天凌晨 3 點自動清除
-0 3 * * * cd /opt/simple-nms && python3 scripts/cleanup.py --days 30
 ```
 
 ---

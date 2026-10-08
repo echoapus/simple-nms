@@ -27,33 +27,15 @@ if ! id -u simplenms >/dev/null 2>&1; then
     useradd -r -m -d /opt/simple-nms -s /usr/sbin/nologin simplenms
 fi
 
-echo "Extracting MIB files from mibs.tar.gz..."
 MIB_DIR="/opt/simple-nms/data/mibs"
 TLS_DIR="/opt/simple-nms/data/tls"
 mkdir -p "$MIB_DIR" "$TLS_DIR"
-if [ -f "$PROJECT_ROOT/resources/mibs.tar.gz" ]; then
-    tar -xzf "$PROJECT_ROOT/resources/mibs.tar.gz" --strip-components=1 -C "$MIB_DIR"
-    echo "MIB files extracted to $MIB_DIR"
-    
-    # Ensure legacy SMIv1 dependency shims exist to prevent compilation errors for private MIBs
-    if [ ! -f "$MIB_DIR/RFC-1212.txt" ] && [ ! -f "$MIB_DIR/RFC-1212" ]; then
-        echo "Creating RFC-1212.txt shim..."
-        printf "RFC-1212 DEFINITIONS ::= BEGIN\nEND\n" > "$MIB_DIR/RFC-1212.txt"
-    fi
-    if [ ! -f "$MIB_DIR/RFC-1215.txt" ] && [ ! -f "$MIB_DIR/RFC-1215" ]; then
-        echo "Creating RFC-1215.txt shim..."
-        printf "RFC-1215 DEFINITIONS ::= BEGIN\nEND\n" > "$MIB_DIR/RFC-1215.txt"
-    fi
-else
-    echo "Warning: mibs.tar.gz not found in resources directory. Skipping extraction."
-fi
+echo "Using $MIB_DIR for uploaded or system-installed MIB files."
 
 echo "Deploying to /opt/simple-nms..."
-mkdir -p /opt/simple-nms/data /opt/simple-nms/scripts
+mkdir -p /opt/simple-nms/data
 cp -r "$PROJECT_ROOT"/src/simplenms/* /opt/simple-nms/
-cp "$PROJECT_ROOT"/scripts/cleanup.py /opt/simple-nms/scripts/
 cp "$PROJECT_ROOT"/requirements.txt /opt/simple-nms/
-test -f "$PROJECT_ROOT"/resources/mibs.tar.gz && cp "$PROJECT_ROOT"/resources/mibs.tar.gz /opt/simple-nms/ || true
 
 # Preserve config.json if it already exists to prevent losing user settings
 if [ -f /opt/simple-nms/config.json ]; then
@@ -112,7 +94,7 @@ find /opt/simple-nms -type d -exec chmod 750 {} +
 find /opt/simple-nms -type f -exec chmod 640 {} +
 
 # 3. Ensure entrypoints and venv binaries are executable by the group
-chmod 750 /opt/simple-nms/main.py /opt/simple-nms/scripts/cleanup.py
+chmod 750 /opt/simple-nms/main.py
 find /opt/simple-nms/venv/bin -type f -exec chmod 750 {} +
 
 # 4. Make the persistent data directory fully owned and writable by the simplenms user

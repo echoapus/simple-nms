@@ -68,6 +68,9 @@ def test_static_contract():
     print("\n=== Static UI Contract ===")
     _, w, _, c = setup()
     html = c.get("/").data.decode("utf-8")
+    js = c.get("/static/app.js").data.decode("utf-8")
+    css = c.get("/static/app.css").data.decode("utf-8")
+    static_text = html + js + css
 
     required_ids = [
         "themeToggle", "globalSearch", "sseIndicator", "sidebarToggle",
@@ -85,9 +88,9 @@ def test_static_contract():
     check("Required UI ids present", not missing_ids, f"missing {missing_ids}")
 
     required_api_paths = ["/health", "/api/events", "/api/events/cleanup", "/api/kpi", "/api/sse"]
-    missing_paths = [path for path in required_api_paths if path not in html]
+    missing_paths = [path for path in required_api_paths if path not in static_text]
     check("Required API paths referenced", not missing_paths, f"missing {missing_paths}")
-    check("Theme follows browser preference", "prefers-color-scheme: dark" in html)
+    check("Theme follows browser preference", "prefers-color-scheme: dark" in static_text)
 
     w.stop(); w.join(timeout=2)
 

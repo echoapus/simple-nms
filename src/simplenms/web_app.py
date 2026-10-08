@@ -147,7 +147,8 @@ sse_hub = SSEHub()
 
 def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, snmp_collector=None,
                config_path: str = "config.json", tls_reloader=None,
-               syslog_collector=None, syslog_tls_collector_getter=None) -> Flask:
+               syslog_collector=None, syslog_tls_collector_getter=None,
+               retention_status_getter=None) -> Flask:
     """Create the unified Flask application."""
 
     app = Flask(__name__,
@@ -160,6 +161,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
     app.config["TLS_RELOADER"] = tls_reloader
     app.config["SYSLOG_COLLECTOR"] = syslog_collector
     app.config["SYSLOG_TLS_COLLECTOR_GETTER"] = syslog_tls_collector_getter
+    app.config["RETENTION_STATUS_GETTER"] = retention_status_getter
 
     # Suppress default Flask request logging
     wlog = logging.getLogger("werkzeug")
@@ -241,6 +243,29 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             "db_writer": writer.health_snapshot() if writer else {"configured": False},
         }), 200
 
+    def collector_state(collector) -> dict:
+        return {
+            "configured": collector is not None,
+            "alive": collector.is_alive() if collector and hasattr(collector, "is_alive") else False,
+            "host": getattr(collector, "host", None),
+            "port": getattr(collector, "port", None),
+        }
+
+    @app.route("/api/status", methods=["GET"])
+    def api_status():
+        writer = app.config.get("DB_WRITER")
+        tls_getter = app.config.get("SYSLOG_TLS_COLLECTOR_GETTER") or (lambda: None)
+        retention_getter = app.config.get("RETENTION_STATUS_GETTER") or (lambda: {"configured": False})
+        return jsonify({
+            "queue": {"size": write_queue.qsize(), "max_size": write_queue.maxsize or None},
+            "db_writer": writer.health_snapshot() if writer else {"configured": False},
+            "collectors": {
+                "syslog": collector_state(app.config.get("SYSLOG_COLLECTOR")),
+                "syslog_tls": collector_state(tls_getter()),
+                "snmptrap": collector_state(app.config.get("SNMP_COLLECTOR")),
+            },
+            "retention": retention_getter(),
+        })
 
     @app.route("/api/events/cleanup", methods=["POST"])
     def api_events_cleanup():

@@ -1,5 +1,7 @@
 """Shared runner for the phase validation scripts."""
 
+import os
+
 passed = 0
 failed = 0
 
@@ -12,6 +14,8 @@ def check(name, condition, detail=""):
     else:
         failed += 1
         print(f"  [FAIL] {name}  -- {detail}")
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            raise AssertionError(f"{name}: {detail}")
 
 
 def run_suite(title, tests):

@@ -19,11 +19,7 @@ pkill -9 -u simplenms 2>/dev/null || true
 
 userdel simplenms 2>/dev/null || true
 rm -rf /opt/simple-nms
-rm -f /var/log/simple-nms-cleanup.log
 
 echo "=================================================================="
-echo "🎉 Simple NMS has been successfully removed!"
-echo "=================================================================="
-echo "💡 Note: If you added a manual cron job for scripts/cleanup.py,"
-echo "   please remember to remove it from your crontab (crontab -e)."
+echo "Simple NMS has been successfully removed!"
 echo "=================================================================="

@@ -78,51 +78,6 @@ def test_shutdown_drain():
     os.remove(db_drain)
 
 
-def test_cleanup_script():
-    print("\n=== Cleanup Script ===")
-    db_clean = "/tmp/snms_test_cleanup.db"
-    if os.path.exists(db_clean):
-        os.remove(db_clean)
-    init_db(db_clean, wal_mode=True)
-
-    # Seed events: some old, some recent
-    conn = sqlite3.connect(db_clean)
-    conn.execute("INSERT INTO events (ts, src_ip, type, payload) VALUES "
-                 "('2025-01-01T00:00:00', '10.0.0.1', 'syslog', 'old event 1')")
-    conn.execute("INSERT INTO events (ts, src_ip, type, payload) VALUES "
-                 "('2025-01-02T00:00:00', '10.0.0.2', 'syslog', 'old event 2')")
-    conn.execute("INSERT INTO events (ts, src_ip, type, payload) VALUES "
-                 "(strftime('%Y-%m-%dT%H:%M:%S','now'), '10.0.0.3', 'syslog', 'recent event')")
-    conn.commit()
-    total = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-    check("Seeded 3 events", total == 3)
-    conn.close()
-
-    # Dry run
-    result = subprocess.run(
-        [sys.executable, os.path.join(PROJECT, "scripts", "cleanup.py"), "--db", db_clean, "--days", "30", "--dry-run"],
-        capture_output=True, text=True)
-    check("Dry run exits 0", result.returncode == 0)
-    check("Dry run reports 2 events", "2" in result.stdout and "DRY RUN" in result.stdout,
-          f"output: {result.stdout.strip()}")
-
-    # Actual cleanup
-    result = subprocess.run(
-        [sys.executable, os.path.join(PROJECT, "scripts", "cleanup.py"), "--db", db_clean, "--days", "30"],
-        capture_output=True, text=True)
-    check("Cleanup exits 0", result.returncode == 0)
-    check("Cleanup reports deletion", "Deleted 2" in result.stdout,
-          f"output: {result.stdout.strip()}")
-
-    conn = sqlite3.connect(db_clean)
-    remaining = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
-    check("1 event remains after cleanup", remaining == 1)
-    payload = conn.execute("SELECT payload FROM events").fetchone()[0]
-    check("Remaining event is the recent one", payload == "recent event")
-    conn.close()
-    os.remove(db_clean)
-
-
 def test_deployment_files():
     print("\n=== Deployment Files ===")
 
@@ -278,7 +233,6 @@ if __name__ == "__main__":
     raise SystemExit(run_suite("Simple NMS -- Phase 4 Validation Suite", [
         test_retry_mechanism,
         test_shutdown_drain,
-        test_cleanup_script,
         test_deployment_files,
         test_documentation,
         test_config_port80,

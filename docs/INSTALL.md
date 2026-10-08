@@ -69,7 +69,7 @@ whole directory rather than only `events.db` if you need a complete restore.
 sudo ./scripts/install.sh
 ```
 
-The installer asks for the SNMP Trap community, creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, extracts bundled MIB files, installs the systemd unit, and starts the service. Press Enter to keep the existing community during an upgrade or use `simplenms` on a first install.
+The installer asks for the SNMP Trap community, creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, installs the systemd unit, and starts the service. Press Enter to keep the existing community during an upgrade or use `simplenms` on a first install.
 
 ### 2. Manual install
 
@@ -77,7 +77,6 @@ The installer asks for the SNMP Trap community, creates the `simplenms` user, co
 sudo useradd -r -m -d /opt/simple-nms -s /usr/sbin/nologin simplenms
 sudo mkdir -p /opt/simple-nms/data /opt/simple-nms/scripts
 sudo cp -r src/simplenms/* requirements.txt config.example.json /opt/simple-nms/
-sudo cp scripts/cleanup.py /opt/simple-nms/scripts/
 sudo python3 -m venv /opt/simple-nms/venv
 sudo /opt/simple-nms/venv/bin/pip install -r /opt/simple-nms/requirements.txt
 sudo chown -R root:simplenms /opt/simple-nms
@@ -217,7 +216,7 @@ curl -X POST http://localhost/api/events/cleanup \
   -d '{"before_ts":"2026-01-01T00:00:00"}'
 ```
 
-For unattended local cleanup, set up a daily cron job:
+For unattended cleanup, call the API from cron:
 
 ```bash
 sudo crontab -u simplenms -e
@@ -226,7 +225,7 @@ sudo crontab -u simplenms -e
 Add:
 
 ```cron
-0 3 * * * cd /opt/simple-nms && python3 scripts/cleanup.py --days 30 >> /var/log/simple-nms-cleanup.log 2>&1
+0 3 * * * curl -fsS -X POST http://localhost/api/events/cleanup -H "Content-Type: application/json" -d "{\"before_ts\":\"$(date -u -d '30 days ago' +\\%Y-\\%m-\\%dT\\%H:\\%M:\\%S)\"}"
 ```
 
 ### 8. Firewall
@@ -304,8 +303,6 @@ curl -X POST http://localhost/api/events/cleanup \
   -H "Content-Type: application/json" \
   -d '{"before_ts":"2026-01-01T00:00:00"}'
 
-# Or run the bundled CLI inside the container
-docker compose exec simple-nms python3 scripts/cleanup.py --days 30
 ```
 
 ---

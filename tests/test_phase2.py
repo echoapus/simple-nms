@@ -320,16 +320,21 @@ def test_api_status():
     print("\n=== GET /health + /api/status ===")
     wq, w, _, c = seed_db()
 
-    for path in ("/health",):
-        r = c.get(path)
-        check(f"{path} -> 200", r.status_code == 200)
-        d = r.get_json()
-        check(f"{path}: queue status", "queue" in d and "size" in d["queue"] and "max_size" in d["queue"])
-        check(f"{path}: dropped metrics", "metrics" in d and "dropped_events" in d["metrics"])
-        check(f"{path}: DB writer configured", d.get("db_writer", {}).get("configured") is True)
-        check(f"{path}: DB writer total_written", d.get("db_writer", {}).get("total_written", 0) >= 7)
-        check(f"{path}: SSE client count", "sse_clients" in d)
-        check(f"{path}: app version", d.get("version") == "26.8.26")
+    r = c.get("/health")
+    check("/health -> 200", r.status_code == 200)
+    d = r.get_json()
+    check("/health: queue status", "queue" in d and "size" in d["queue"] and "max_size" in d["queue"])
+    check("/health: dropped metrics", "metrics" in d and "dropped_events" in d["metrics"])
+    check("/health: DB writer configured", d.get("db_writer", {}).get("configured") is True)
+    check("/health: DB writer total_written", d.get("db_writer", {}).get("total_written", 0) >= 7)
+    check("/health: SSE client count", "sse_clients" in d)
+    check("/health: app version", d.get("version") == "26.8.26")
+
+    r = c.get("/api/status")
+    check("/api/status -> 200", r.status_code == 200)
+    d = r.get_json()
+    check("/api/status: collectors", set(d.get("collectors", {})) == {"syslog", "syslog_tls", "snmptrap"})
+    check("/api/status: retention", d.get("retention", {}).get("configured") is False)
 
     w.stop(); w.join(timeout=2)
 

@@ -347,6 +347,14 @@ curl -X POST http://localhost/api/events/cleanup \
   -d '{"before_ts":"2026-01-01T00:00:00.000"}'
 ```
 
+### GET /api/status
+
+Return queue depth, DB writer state, collector state, and retention status.
+
+```bash
+curl http://localhost/api/status
+```
+
 ---
 
 ## Data Retention
@@ -359,17 +367,20 @@ curl -X POST http://localhost/api/events/cleanup \
   -d '{"before_ts":"2026-01-01T00:00:00.000"}'
 ```
 
-For cron or one-off local maintenance, use the bundled cleanup script:
+Automatic cleanup is disabled by default. Enable it in `config.json`:
 
-```bash
-# Preview what would be deleted
-python3 scripts/cleanup.py --days 30 --dry-run
+```json
+"retention": {
+  "enabled": true,
+  "days": 30,
+  "interval_hours": 24
+}
+```
 
-# Delete events older than 30 days
-python3 scripts/cleanup.py --days 30
+For cron, call the same cleanup API:
 
-# Delete events older than 7 days
-python3 scripts/cleanup.py --days 7
+```cron
+0 3 * * * curl -fsS -X POST http://localhost/api/events/cleanup -H "Content-Type: application/json" -d "{\"before_ts\":\"$(date -u -d '30 days ago' +\%Y-\%m-\%dT\%H:\%M:\%S)\"}"
 ```
 
 ---

@@ -10,9 +10,11 @@ import json
 import logging
 import queue
 import signal
+import sqlite3
 import sys
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 
 from database import init_db, DBWriter
 from collectors.syslog_listener import SyslogCollector, SyslogTLSCollector
@@ -88,7 +90,55 @@ class TLSCollectorManager:
             if self.collector:
                 self.collector.stop()
                 self.collector.join(timeout=2)
-                self.collector = None
+            self.collector = None
+
+
+class RetentionWorker(threading.Thread):
+    def __init__(self, db_path: str, days: int, interval_hours: int):
+        super().__init__(daemon=True, name="retention-worker")
+        self.db_path = db_path
+        self.days = max(1, days)
+        self.interval_seconds = max(1, interval_hours) * 3600
+        self._stop_event = threading.Event()
+        self.last_run_at = None
+        self.last_deleted = 0
+        self.last_error = None
+
+    def run_cleanup(self) -> None:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=self.days)).strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.execute("DELETE FROM events WHERE ts < ?", (cutoff,))
+            deleted = cur.rowcount
+            conn.commit()
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+            self.last_run_at = datetime.now(timezone.utc).isoformat()
+            self.last_deleted = deleted
+            self.last_error = None
+            logger.info("Retention cleanup deleted %d events older than %d days", deleted, self.days)
+        except Exception as exc:
+            self.last_error = str(exc)
+            logger.exception("Retention cleanup failed")
+
+    def run(self) -> None:
+        while not self._stop_event.is_set():
+            self.run_cleanup()
+            self._stop_event.wait(self.interval_seconds)
+
+    def stop(self) -> None:
+        self._stop_event.set()
+
+    def status(self) -> dict:
+        return {
+            "configured": True,
+            "alive": self.is_alive(),
+            "days": self.days,
+            "interval_hours": self.interval_seconds // 3600,
+            "last_run_at": self.last_run_at,
+            "last_deleted": self.last_deleted,
+            "last_error": self.last_error,
+        }
 
 
 def load_config(path: str = "config.json") -> dict:
@@ -143,6 +193,15 @@ def main() -> None:
     )
     db_writer.start()
     tls_manager = TLSCollectorManager(write_queue)
+    retention_worker = None
+    retention_cfg = cfg.get("retention", {})
+    if retention_cfg.get("enabled", False):
+        retention_worker = RetentionWorker(
+            db_path,
+            days=int(retention_cfg.get("days", 30)),
+            interval_hours=int(retention_cfg.get("interval_hours", 24)),
+        )
+        retention_worker.start()
 
     threads = []
     _web_server = None
@@ -196,6 +255,7 @@ def main() -> None:
             tls_reloader=tls_manager.apply,
             syslog_collector=sc,
             syslog_tls_collector_getter=lambda: tls_manager.collector,
+            retention_status_getter=lambda: retention_worker.status() if retention_worker else {"configured": False},
         )
         host = webhook_cfg.get("host", "0.0.0.0")
         port = webhook_cfg.get("port", 5000)
@@ -222,6 +282,8 @@ def main() -> None:
                 if hasattr(t, "stop"):
                     t.stop()
             tls_manager.stop()
+            if retention_worker:
+                retention_worker.stop()
             db_writer.stop()
 
     signal.signal(signal.SIGINT, handle_signal)
@@ -236,6 +298,8 @@ def main() -> None:
         handle_signal(None, None)
 
     db_writer.join()
+    if retention_worker:
+        retention_worker.join(timeout=2)
     logger.info("Simple NMS stopped.")
 
 
