@@ -26,6 +26,7 @@ USER simplenms
 EXPOSE 80/tcp
 EXPOSE 514/udp
 EXPOSE 162/udp
+EXPOSE 6514/tcp
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

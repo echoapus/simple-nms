@@ -18,7 +18,6 @@ from datetime import datetime, timedelta, timezone
 
 from database import init_db, DBWriter
 from collectors.syslog_listener import SyslogCollector, SyslogTLSCollector
-from collectors.snmp_listener import SNMPTrapCollector
 from web_app import create_app, sse_hub
 
 # ---------------------------------------------------------------------------
@@ -176,8 +175,7 @@ def main() -> None:
     os.makedirs(data_dir, exist_ok=True)
     os.makedirs(os.path.join(data_dir, "mibs"), exist_ok=True)
 
-    wal = db_cfg.get("wal_mode", True)
-    init_db(db_path, wal_mode=wal)
+    init_db(db_path)
 
     # Central write queue
     write_queue: queue.Queue[dict] = queue.Queue(maxsize=50_000)
@@ -224,12 +222,13 @@ def main() -> None:
     snmp_cfg = cfg.get("snmptrap", {})
     tc = None
     if snmp_cfg.get("enabled", False):
+        from collectors.snmp_listener import SNMPTrapCollector
         tc = SNMPTrapCollector(
             write_queue,
             host=snmp_cfg.get("host", "0.0.0.0"),
             port=snmp_cfg.get("port", 162),
             community=snmp_cfg.get("community", "simplenms"),
-            mib_dirs=snmp_cfg.get("mib_dirs"),
+            mib_dirs=list(dict.fromkeys([os.path.join(data_dir, "mibs")] + snmp_cfg.get("mib_dirs", ["/usr/share/snmp/mibs"]))),
             mib_modules=snmp_cfg.get("mib_modules"),
         )
         tc.start()

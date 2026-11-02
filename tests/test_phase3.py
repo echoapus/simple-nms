@@ -23,7 +23,7 @@ DB = "/tmp/snms_test_p3.db"
 def setup():
     if os.path.exists(DB):
         os.remove(DB)
-    init_db(DB, wal_mode=True)
+    init_db(DB)
     wq = queue.Queue()
     w = DBWriter(DB, wq, batch_size=10, flush_interval=0.1)
     w.start()
@@ -136,8 +136,7 @@ def test_config_and_mibs():
     default_cfg_path = os.path.join(test_dir, "config.json")
     default_cfg = {
         "database": {
-            "path": os.path.join(test_dir, "events.db"),
-            "wal_mode": True
+            "path": os.path.join(test_dir, "events.db")
         },
         "snmptrap": {
             "enabled": True,
@@ -157,7 +156,7 @@ def test_config_and_mibs():
     # Make it read-only (mimicking the production environment)
     os.chmod(os.path.join(test_dir, "mibs_readonly"), 0o555)
     
-    init_db(default_cfg["database"]["path"], wal_mode=True)
+    init_db(default_cfg["database"]["path"])
     wq = queue.Queue()
     w = DBWriter(default_cfg["database"]["path"], wq, batch_size=10, flush_interval=0.1)
     w.start()

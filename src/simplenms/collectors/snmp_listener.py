@@ -2,12 +2,14 @@
 
 import json
 import logging
+import os
 import queue
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
 
-from mibs import discover_modules, first_writable_dir
+from mibs import discover_modules
 from metrics import runtime_metrics
 
 logger = logging.getLogger(__name__)
@@ -17,7 +19,7 @@ try:
     from pysnmp.entity import config as snmp_config
     from pysnmp.entity import engine
     from pysnmp.entity.rfc3413 import ntfrcv
-    from pysnmp.smi import view
+    from pysnmp.smi import builder, view
     from pysnmp.smi.rfc1902 import ObjectIdentity
     _PYSNMP_OK = True
 except ImportError:
@@ -37,26 +39,24 @@ class MibResolver:
     def __init__(self, snmp_engine, mib_dirs=None, mib_modules=None):
         self._cache = {}
         self._mib_view = None
+        self._lock = threading.RLock()
+        self._reload_lock = threading.Lock()
+        self._mib_dirs = list(mib_dirs or [])
+        self._mib_modules = mib_modules
+        self._load_errors = {}
+        self._compiled = tempfile.TemporaryDirectory(prefix="simplenms-mibs-")
 
         try:
-            mib_builder = snmp_engine.get_mib_builder()
+            mib_builder = snmp_engine.get_mib_builder() if snmp_engine else builder.MibBuilder()
 
             # Automatically discover MIB files in custom directories
             discovered_modules = []
             if mib_dirs:
-                destination = first_writable_dir(mib_dirs)
-                if not destination:
-                    import os
-                    import tempfile
-                    destination = os.path.join(tempfile.gettempdir(), "pysnmp_mibs")
-                    try:
-                        os.makedirs(destination, exist_ok=True)
-                    except Exception:
-                        pass
+                destination = self._compiled.name
 
                 try:
                     from pysnmp.smi import compiler
-                    sources = list(mib_dirs) + list(compiler.DEFAULT_SOURCES)
+                    sources = list(mib_dirs) + [os.path.join(os.path.dirname(os.path.dirname(__file__)), "standard_mibs")] + list(compiler.DEFAULT_SOURCES)
                     compiler.add_mib_compiler(mib_builder, sources=sources, destination=destination)
                     logger.info("MIB compiler configured with sources: %s, destination: %s", sources, destination)
                 except Exception as e:
@@ -80,6 +80,7 @@ class MibResolver:
                 try:
                     mib_builder.load_modules(mod)
                 except Exception as e:
+                    self._load_errors[mod] = str(e)
                     logger.debug("MIB compiler: skipped unavailable MIB module %s: %s", mod, e)
 
             self._mib_view = view.MibViewController(mib_builder)
@@ -94,6 +95,10 @@ class MibResolver:
         Returns the resolved name, or the original OID if resolution fails.
         Results are cached for performance.
         """
+        with self._lock:
+            return self._resolve(oid_str)
+
+    def _resolve(self, oid_str: str) -> str:
         if oid_str in self._cache:
             return self._cache[oid_str]
 
@@ -128,18 +133,22 @@ class MibResolver:
             self._cache[oid_str] = oid_str
             return oid_str
 
-    def reload_discovered_mibs(self, mib_dir: str) -> None:
-        """Dynamically scan and load newly uploaded MIB modules."""
-        if not self._mib_view:
-            return
-
-        mib_builder = self._mib_view.mibBuilder
-        for mod in discover_modules([mib_dir]):
-            try:
-                mib_builder.load_modules(mod)
-                logger.info("Dynamically loaded MIB module: %s", mod)
-            except Exception as e:
-                logger.debug("MIB compiler: skipped unavailable dynamic MIB module %s: %s", mod, e)
+    def reload_discovered_mibs(self, mib_dir: str, module: str) -> None:
+        """Build a new resolver without blocking incoming traps."""
+        with self._reload_lock:
+            dirs = list(dict.fromkeys(self._mib_dirs + [mib_dir]))
+            replacement = MibResolver(None, dirs, self._mib_modules)
+            if not replacement._mib_view or module in replacement._load_errors:
+                raise ValueError(replacement._load_errors.get(module, "MIB resolver initialization failed"))
+            if module not in replacement._mib_view.mibBuilder.mibSymbols:
+                raise ValueError(f"MIB module {module} was not found or loaded")
+            with self._lock:
+                old_compiled = self._compiled
+                self._mib_view = replacement._mib_view
+                self._compiled = replacement._compiled
+                self._mib_dirs = dirs
+                self._cache.clear()
+            old_compiled.cleanup()
 
 
 class SNMPTrapCollector(threading.Thread):

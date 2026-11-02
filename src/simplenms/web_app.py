@@ -712,16 +712,20 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             logger.warning("Failed to create module-name symlink for %s: %s", filename, e)
                      
         collector = app.config.get("SNMP_COLLECTOR")
+        loaded = False
         if collector and hasattr(collector, "_resolver") and collector._resolver:
             try:
-                collector._resolver.reload_discovered_mibs(save_dir)
+                collector._resolver.reload_discovered_mibs(save_dir, real_name)
+                loaded = True
             except Exception as e:
                 logger.warning("Failed to dynamically reload MIB resolver: %s", e)
+                return jsonify({"error": f"MIB saved but could not be loaded: {e}"}), 422
                  
         return jsonify({
             "status": "ok",
             "filename": filename,
             "module_name": real_name,
+            "loaded": loaded,
             "message": "MIB file uploaded and validated successfully"
         }), 201
 

@@ -10,6 +10,7 @@ import os
 import sys
 import queue
 import sqlite3
+import tempfile
 import time
 
 # Support running tests from any directory
@@ -161,7 +162,7 @@ def test_db_writer():
     db = "/tmp/snms_test_writer.db"
     if os.path.exists(db):
         os.remove(db)
-    init_db(db, wal_mode=True)
+    init_db(db)
 
     wq = queue.Queue()
     w = DBWriter(db, wq, batch_size=10, flush_interval=0.1)
@@ -203,12 +204,32 @@ def test_db_writer():
     conn.close()
 
 
+def test_db_writer_rollback():
+    with tempfile.TemporaryDirectory() as directory:
+        db = os.path.join(directory, "events.db")
+        init_db(db)
+        wq = queue.Queue()
+        event = {"ts": "2026-04-13T09:00:00", "src_ip": None, "type": "syslog",
+                 "facility": None, "severity": None, "oid": None, "varbinds": None,
+                 "payload": "first", "tags": None}
+        wq.put(event)
+        wq.put({**event, "type": "invalid"})
+        wq.put({**event, "payload": "later"})
+        w = DBWriter(db, wq, batch_size=2, flush_interval=0.01)
+        w.start()
+        w.stop()
+        w.join(timeout=2)
+        with sqlite3.connect(db) as conn:
+            rows = conn.execute("SELECT payload FROM events").fetchall()
+        check("Failed batch is rolled back before next batch", rows == [("later",)])
+
+
 def test_performance():
     print("\n=== Performance Benchmark ===")
     db = "/tmp/snms_test_perf.db"
     if os.path.exists(db):
         os.remove(db)
-    init_db(db, wal_mode=True)
+    init_db(db)
 
     wq = queue.Queue()
     w = DBWriter(db, wq, batch_size=100, flush_interval=0.2)
@@ -242,7 +263,7 @@ def test_end_to_end():
     db = "/tmp/snms_test_e2e.db"
     if os.path.exists(db):
         os.remove(db)
-    init_db(db, wal_mode=True)
+    init_db(db)
 
     wq = queue.Queue()
     w = DBWriter(db, wq, batch_size=10, flush_interval=0.1)
@@ -279,6 +300,7 @@ if __name__ == "__main__":
         test_snmp_module,
         test_snmp_mib_partial_resolution,
         test_db_writer,
+        test_db_writer_rollback,
         test_performance,
         test_end_to_end,
     ]))

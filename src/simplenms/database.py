@@ -39,16 +39,15 @@ VALUES (:ts, :src_ip, :type, :facility, :severity, :oid, :varbinds, :payload, :t
 """
 
 
-def init_db(db_path: str, wal_mode: bool = True) -> None:
+def init_db(db_path: str) -> None:
     """Create database directory, tables and indexes."""
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     conn = sqlite3.connect(db_path)
-    if wal_mode:
-        conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA_SQL)
     conn.commit()
     conn.close()
-    logger.info("Database initialised: %s (WAL=%s)", db_path, wal_mode)
+    logger.info("Database initialised: %s", db_path)
 
 
 class DBWriter(threading.Thread):
@@ -155,6 +154,7 @@ class DBWriter(threading.Thread):
                         except Exception:
                             logger.exception("SSE callback error")
             except sqlite3.Error as exc:
+                conn.rollback()
                 with self._stats_lock:
                     self._last_error = str(exc)
                 logger.exception("DB write failed — dropped %d events", len(batch))

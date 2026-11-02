@@ -24,7 +24,7 @@ def seed_db():
     """Seed database with test events and return (write_queue, db_writer, app, client)."""
     if os.path.exists(DB):
         os.remove(DB)
-    init_db(DB, wal_mode=True)
+    init_db(DB)
 
     wq = queue.Queue()
     w = DBWriter(DB, wq, batch_size=50, flush_interval=0.1)
@@ -283,7 +283,7 @@ def test_sse_db_integration():
     print("\n=== SSE + DB Writer Integration ===")
     if os.path.exists(DB):
         os.remove(DB)
-    init_db(DB, wal_mode=True)
+    init_db(DB)
 
     received = []
 
@@ -343,7 +343,7 @@ def test_webhook_to_api():
     print("\n=== Webhook -> DB -> API round-trip ===")
     if os.path.exists(DB):
         os.remove(DB)
-    init_db(DB, wal_mode=True)
+    init_db(DB)
 
     wq = queue.Queue()
     w = DBWriter(DB, wq, batch_size=10, flush_interval=0.1)

@@ -31,11 +31,11 @@ def parse_module_name(path: str) -> str | None:
 def first_writable_dir(dirs: Iterable[str], default: str | None = None) -> str | None:
     for d in dirs:
         if os.path.exists(d):
-            if os.stat(d).st_mode & 0o222 and os.access(d, os.W_OK):
+            if os.access(d, os.W_OK):
                 return d
         else:
             parent = os.path.dirname(d) or "."
-            if os.path.exists(parent) and os.stat(parent).st_mode & 0o222 and os.access(parent, os.W_OK):
+            if os.path.exists(parent) and os.access(parent, os.W_OK):
                 return d
     return default
 

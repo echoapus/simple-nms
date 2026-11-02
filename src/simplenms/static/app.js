@@ -997,8 +997,8 @@
         const data = await resp.json();
         if (resp.ok) {
           statusMsg.style.color = '#2eb82e';
-          statusMsg.textContent = `Success: Loaded module ${data.module_name}`;
-          showToast('MIB uploaded and compiled successfully');
+          statusMsg.textContent = data.loaded ? `Success: Loaded module ${data.module_name}` : `Saved module ${data.module_name}; SNMP collector is not running`;
+          showToast(data.loaded ? 'MIB uploaded and compiled successfully' : 'MIB saved');
           fileInput.value = '';
           nameLabel.textContent = 'No file chosen';
           fetchMibs();

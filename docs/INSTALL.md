@@ -104,8 +104,7 @@ sudo nano /opt/simple-nms/config.json
 ```json
 {
     "database": {
-        "path": "data/events.db",
-        "wal_mode": true
+        "path": "data/events.db"
     },
     "writer": {
         "batch_size": 100,
@@ -328,4 +327,4 @@ python3 main.py ../../config.json
 | `ModuleNotFoundError: pysnmp` | Run `pip install pysnmp --break-system-packages` |
 | Community change in Web UI does not affect traps | Run `scripts/check_community_update.py`; verify the service is running current code and `snmptrap` is installed |
 | Events not appearing in UI | Check browser console for SSE errors; verify with `curl http://localhost/api/kpi` |
-| Database locked errors | Ensure WAL mode is enabled in config (`"wal_mode": true`) |
+| Database locked errors | SQLite is always run in WAL mode; check for another process holding a write lock on the `.db` file |

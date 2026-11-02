@@ -213,8 +213,7 @@ sudo ./scripts/install.sh
 ```json
 {
     "database": {
-        "path": "data/events.db",
-        "wal_mode": true
+        "path": "data/events.db"
     },
     "writer": {
         "batch_size": 100,

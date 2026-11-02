@@ -30,7 +30,7 @@ def test_retry_mechanism():
     print("\n=== DB Writer Write Path ===")
     if os.path.exists(DB):
         os.remove(DB)
-    init_db(DB, wal_mode=True)
+    init_db(DB)
 
     wq = queue.Queue()
     w = DBWriter(DB, wq, batch_size=10, flush_interval=0.1)
@@ -56,7 +56,7 @@ def test_shutdown_drain():
     db_drain = "/tmp/snms_test_shutdown_drain.db"
     if os.path.exists(db_drain):
         os.remove(db_drain)
-    init_db(db_drain, wal_mode=True)
+    init_db(db_drain)
 
     wq = queue.Queue()
     w = DBWriter(db_drain, wq, batch_size=100, flush_interval=5.0)
