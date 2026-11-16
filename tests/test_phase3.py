@@ -91,6 +91,8 @@ def test_static_contract():
     missing_paths = [path for path in required_api_paths if path not in static_text]
     check("Required API paths referenced", not missing_paths, f"missing {missing_paths}")
     check("Theme follows browser preference", "prefers-color-scheme: dark" in static_text)
+    check("SSE batches live feed updates", "LIVE_BATCH_MS" in js and "queueLiveEvent(JSON.parse(e.data))" in js and "if (state.loading)" in js)
+    check("SSE throttles KPI queries", "KPI_REFRESH_MS" in js and "scheduleKpiRefresh" in js)
 
     w.stop(); w.join(timeout=2)
 

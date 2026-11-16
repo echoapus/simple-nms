@@ -64,8 +64,8 @@ class DBWriter(threading.Thread):
     flush_interval : float
         Seconds to wait before flushing a partial batch.
     sse_callback : callable or None
-        Optional callback invoked with each successfully inserted event dict
-        (used later for SSE push in Phase 2).
+        Optional callback invoked with each successfully inserted event dict,
+        including its database ID (used later for SSE push in Phase 2).
     """
 
     def __init__(
@@ -141,6 +141,7 @@ class DBWriter(threading.Thread):
 
             try:
                 conn.executemany(INSERT_SQL, batch)
+                last_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 conn.commit()
                 with self._stats_lock:
                     self._total_written += len(batch)
@@ -148,9 +149,10 @@ class DBWriter(threading.Thread):
                     self._last_error = None
                 logger.debug("Flushed %d events to DB", len(batch))
                 if self.sse_callback:
-                    for evt in batch:
+                    first_id = last_id - len(batch) + 1
+                    for event_id, evt in enumerate(batch, first_id):
                         try:
-                            self.sse_callback(evt)
+                            self.sse_callback({**evt, "id": event_id})
                         except Exception:
                             logger.exception("SSE callback error")
             except sqlite3.Error as exc:

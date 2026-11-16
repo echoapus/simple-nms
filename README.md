@@ -19,7 +19,7 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
   - Event type and source IP filters
   - Dark/light theme toggle
   - Responsive layout (mobile-friendly)
-  - Server-Sent Events (SSE) for live updates
+  - Resource-conscious Server-Sent Events (SSE): 250ms event batches, capped 200-event in-memory buffers, deduplicated database IDs, and throttled KPI refreshes
   - Task-oriented Settings page: independent Service, Syslog denylist, Syslog TLS, and custom MIB controls
 - **Python service plus optional Rust Syslog collector** — no external web server, message broker, or database server required
 - **Reliability** — write failures are logged and tracked via dropped metrics
@@ -171,6 +171,7 @@ python3 tests/test_phase4.py
 python3 tests/test_syslog_tls.py
 python3 tests/test_syslog_collector_choice.py
 python3 tests/test_rust_syslog.py
+node tests/test_live_feed.js
 ```
 
 The SNMP community hot-update check can also be run against a live service:

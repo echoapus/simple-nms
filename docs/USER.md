@@ -36,6 +36,10 @@ The practical consequences are:
   new input is dropped and reported in `/health` metrics.
 - Browser disconnects do not interrupt collection or storage. `EventSource`
   reconnects automatically and the UI reloads current data from REST.
+- The Live Feed batches SSE events every 250ms, caps both its pending and recent
+  event buffers at 200 entries, deduplicates by database ID, and refreshes KPI
+  values at most once every two seconds. Older visual entries may be discarded
+  during a burst; all accepted events remain in SQLite.
 
 The dashboard, API, Settings, SSE, and `/webhook` share one HTTP listener. There
 is no built-in authentication. Use a trusted management network or an

@@ -13,7 +13,7 @@ Simple NMS 是一套輕量級的網路管理系統，收集、儲存並即時呈
 - **四種事件輸入**：Syslog（UDP 514，可選 Rust 或 Python）、Syslog TLS（TCP 6514）、SNMP Trap（UDP 162）、Webhook（HTTP POST）
 - **即時來源封鎖**：Web UI 可驗證並即時套用 IPv4/IPv6 Syslog denylist，不需重啟 UDP/TLS listener
 - **統一儲存**：所有事件寫入單一 SQLite 資料庫，易於備份與查詢
-- **即時儀表板**：瀏覽器開啟即可使用，支援即時事件、視覺化統計圖表、過濾、搜尋、排序、亮/暗主題
+- **即時儀表板**：瀏覽器開啟即可使用；Live Feed 每 250ms 批次更新、記憶體佇列與近期事件各上限 200 筆，依資料庫 ID 去重，KPI 最多每兩秒更新一次
 - **MIB 解析**：自動將 SNMP OID 翻譯為人類可讀的名稱（如 `IF-MIB::ifIndex`）
 - **低外部服務需求**：僅需 Python 3.10+ 與少量 pip 套件；選擇 Rust Syslog 時才需要 Cargo，不需要外部資料庫或 message broker
 
@@ -166,7 +166,8 @@ simple-nms/
 │   ├── test_phase1.py           # 測試：收集器 + DB Writer
 │   ├── test_phase2.py           # 測試：REST API + SSE
 │   ├── test_phase3.py           # 測試：Web UI 結構完整性、設定/MIB API
-│   └── test_phase4.py           # 測試：可靠性、部署檔案、community 熱更新
+│   ├── test_phase4.py           # 測試：可靠性、部署檔案、community 熱更新
+│   └── test_live_feed.js        # 測試：SSE 批次、去重與過期回應
 ```
 
 ---
@@ -580,6 +581,7 @@ python3 tests/test_phase2.py    # REST API 過濾/分頁/排序、SSE Hub、端�
 python3 tests/test_phase3.py    # Web UI、設定 API、MIB API
 python3 tests/test_phase4.py    # 可靠性、清除腳本、部署檔案、community 熱更新
 python3 tests/test_syslog_tls.py # TLS framing、連線與 listener hot reload
+node tests/test_live_feed.js     # SSE 批次、佇列上限、ID 去重、過期回應
 ```
 
 效能基準測試結果：DB Writer 批次寫入達 **5,600+ events/sec**，遠超 RFP 要求的 500 events/sec。

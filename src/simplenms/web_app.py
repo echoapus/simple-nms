@@ -306,13 +306,18 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             sort_col = "ts"
         order = "DESC" if request.args.get("order", "desc").upper() == "DESC" else "ASC"
 
-        total = db.execute(f"SELECT COUNT(*) FROM events {where}", params).fetchone()[0]
-        offset = (page - 1) * per_page
-        rows = db.execute(
-            f"SELECT id, ts, src_ip, type, facility, severity, oid, varbinds, payload, tags "
-            f"FROM events {where} ORDER BY {sort_col} {order} LIMIT ? OFFSET ?",
-            params + [per_page, offset],
-        ).fetchall()
+        db.execute("BEGIN")
+        try:
+            total = db.execute(f"SELECT COUNT(*) FROM events {where}", params).fetchone()[0]
+            snapshot_id = db.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
+            offset = (page - 1) * per_page
+            rows = db.execute(
+                f"SELECT id, ts, src_ip, type, facility, severity, oid, varbinds, payload, tags "
+                f"FROM events {where} ORDER BY {sort_col} {order} LIMIT ? OFFSET ?",
+                params + [per_page, offset],
+            ).fetchall()
+        finally:
+            db.rollback()
 
         events = []
         for r in rows:
@@ -328,6 +333,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             "per_page": per_page,
             "total": total,
             "total_pages": max(1, -(-total // per_page)),
+            "snapshot_id": snapshot_id,
             "sort": sort_col,
             "order": order.lower(),
             "events": events,

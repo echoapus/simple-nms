@@ -102,6 +102,7 @@ def test_api_events_basic():
     check("default per_page=50", d["per_page"] == 50)
     check("page=1", d["page"] == 1)
     check("7 events returned", len(d["events"]) == 7)
+    check("response has a database snapshot ID", d["snapshot_id"] >= max(e["id"] for e in d["events"]))
 
     # Default sort is ts DESC
     timestamps = [e["ts"] for e in d["events"]]
@@ -311,6 +312,7 @@ def test_sse_db_integration():
     if received:
         data = json.loads(received[0].replace("data: ", "").strip())
         check("SSE payload matches", data.get("payload") == "SSE integration test")
+        check("SSE payload has database ID", isinstance(data.get("id"), int) and data["id"] > 0)
 
     sse_hub.unsubscribe(client_q)
     w.stop(); w.join(timeout=2)

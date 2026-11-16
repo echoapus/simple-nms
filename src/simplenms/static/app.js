@@ -188,21 +188,26 @@
   }
 
   async function fetchEvents() {
+    const requestId = ++latestEventsRequest;
     setLoading(true);
     try {
       const resp = await fetch(`/api/events?${buildQueryParams()}`);
       const data = await resp.json();
+      if (requestId !== latestEventsRequest) return;
       state.totalEvents = data.total;
       state.totalPages = data.total_pages;
-      renderEvents(data.events);
+      eventSnapshotId = data.snapshot_id || 0;
+      liveEvents = data.events;
+      renderEvents(liveEvents);
       renderPagination();
       dom.showingCount.textContent = data.events.length;
       dom.totalCount.textContent = formatNumber(data.total);
       updateLastUpdate();
     } catch (err) {
-      console.error('Failed to fetch events:', err);
+      if (requestId === latestEventsRequest) console.error('Failed to fetch events:', err);
+    } finally {
+      if (requestId === latestEventsRequest) setLoading(false);
     }
-    setLoading(false);
   }
 
   async function fetchKpi() {
@@ -277,6 +282,9 @@
   // ── Rendering ──
   // Store current events for modal access
   let currentEvents = [];
+  let liveEvents = [];
+  let eventSnapshotId = 0;
+  let latestEventsRequest = 0;
 
   function renderEvents(events) {
     currentEvents = events;
@@ -444,6 +452,67 @@
   // ── SSE ──
   let eventSource = null;
   let sseEventCount = 0;
+  const LIVE_BATCH_MS = 250;
+  const LIVE_EVENT_LIMIT = 200;
+  const KPI_REFRESH_MS = 2000;
+  let pendingLiveEvents = [];
+  let liveBatchTimer = null;
+  let kpiRefreshTimer = null;
+
+  function matchesLiveEvent(event) {
+    if (state.currentTab !== 'feed' || state.page !== 1 || state.sort !== 'ts' || state.order !== 'desc') return false;
+    if (!state.types.includes(event.type) || (state.srcIp && !(event.src_ip || '').startsWith(state.srcIp))) return false;
+    const eventTime = parseUtcTimestamp(event.ts);
+    if (state.timeFrom && (!eventTime || eventTime < new Date(state.timeFrom))) return false;
+    if (state.timeTo && (!eventTime || eventTime > new Date(state.timeTo))) return false;
+    if (!state.q) return true;
+    const search = [event.payload, event.src_ip, event.facility, event.severity, event.oid, event.tags]
+      .filter(Boolean).join(' ').toLowerCase();
+    return search.includes(state.q.toLowerCase());
+  }
+
+  function scheduleKpiRefresh() {
+    if (kpiRefreshTimer) return;
+    kpiRefreshTimer = setTimeout(() => {
+      kpiRefreshTimer = null;
+      dom.sseIndicator.textContent = `SSE: ${sseEventCount}`;
+      fetchKpi();
+    }, KPI_REFRESH_MS);
+  }
+
+  function flushLiveEvents() {
+    liveBatchTimer = null;
+    if (!pendingLiveEvents.length) return;
+    if (state.loading) {
+      liveBatchTimer = setTimeout(flushLiveEvents, LIVE_BATCH_MS);
+      return;
+    }
+    const incoming = pendingLiveEvents;
+    pendingLiveEvents = [];
+    const knownIds = new Set(liveEvents.map(event => event.id).filter(id => id != null));
+    const uniqueIncoming = incoming.filter(event => {
+      if (event.id == null || knownIds.has(event.id)) return event.id == null;
+      knownIds.add(event.id);
+      return true;
+    });
+    liveEvents = uniqueIncoming.concat(liveEvents)
+      .sort((a, b) => (b.ts || '').localeCompare(a.ts || ''))
+      .slice(0, LIVE_EVENT_LIMIT);
+    state.totalEvents += uniqueIncoming.filter(event => event.id == null || event.id > eventSnapshotId).length;
+    state.totalPages = Math.max(1, Math.ceil(state.totalEvents / state.perPage));
+    renderEvents(liveEvents.slice(0, state.perPage));
+    renderPagination();
+    dom.showingCount.textContent = Math.min(liveEvents.length, state.perPage);
+    dom.totalCount.textContent = formatNumber(state.totalEvents);
+    updateLastUpdate();
+  }
+
+  function queueLiveEvent(event) {
+    if (!matchesLiveEvent(event)) return;
+    pendingLiveEvents.push(event);
+    if (pendingLiveEvents.length > LIVE_EVENT_LIMIT) pendingLiveEvents.shift();
+    if (!liveBatchTimer) liveBatchTimer = setTimeout(flushLiveEvents, LIVE_BATCH_MS);
+  }
 
   function connectSSE() {
     if (eventSource) eventSource.close();
@@ -457,9 +526,12 @@
 
     eventSource.onmessage = (e) => {
       sseEventCount++;
-      dom.sseIndicator.textContent = `SSE: ${sseEventCount}`;
-      // Refresh data on new events (debounced)
-      debouncedRefresh();
+      try {
+        queueLiveEvent(JSON.parse(e.data));
+        scheduleKpiRefresh();
+      } catch (err) {
+        console.error('Invalid SSE event:', err);
+      }
     };
 
     eventSource.onerror = () => {
@@ -468,12 +540,6 @@
       dom.sseIndicator.textContent = 'SSE: reconnecting...';
     };
   }
-
-  const debouncedRefresh = debounce(() => {
-    fetchEvents();
-    fetchKpi();
-    updateLastUpdate();
-  }, 500);
 
   // ── Theme ──
   const systemTheme = matchMedia('(prefers-color-scheme: dark)');
@@ -1165,9 +1231,9 @@
     refresh();
     connectSSE();
 
-    // Periodic refresh as fallback (every 30s)
+    // Poll only when SSE is disconnected; connected feeds update from event batches.
     setInterval(() => {
-      if (!state.loading) refresh();
+      if (!state.loading && !state.sseConnected) refresh();
     }, 30000);
   }
 
