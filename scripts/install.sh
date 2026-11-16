@@ -6,6 +6,44 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+RUST_BUILD_PACKAGES=()
+RUST_PACKAGE_MANAGER=""
+
+install_rust_toolchain() {
+    if command -v cargo >/dev/null 2>&1 && command -v rustc >/dev/null 2>&1; then
+        return
+    fi
+    if [ -f /etc/debian_version ]; then
+        for package in cargo rustc; do
+            dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx installed || RUST_BUILD_PACKAGES+=("$package")
+        done
+        apt-get install -y cargo rustc
+        RUST_PACKAGE_MANAGER="apt-get"
+    elif [ -f /etc/redhat-release ]; then
+        for package in cargo rust; do
+            rpm -q "$package" >/dev/null 2>&1 || RUST_BUILD_PACKAGES+=("$package")
+        done
+        dnf install -y cargo rust
+        RUST_PACKAGE_MANAGER="dnf"
+    else
+        echo "Error: Rust collector selected but cargo and rustc are not installed."
+        exit 1
+    fi
+}
+
+remove_rust_build_packages() {
+    [ "${#RUST_BUILD_PACKAGES[@]}" -gt 0 ] || return
+    read -r -p "Remove Rust build packages installed for this deployment (${RUST_BUILD_PACKAGES[*]})? [y/N]: " REMOVE_RUST || true
+    case "$REMOVE_RUST" in
+        [Yy]|[Yy][Ee][Ss])
+            "$RUST_PACKAGE_MANAGER" remove -y "${RUST_BUILD_PACKAGES[@]}"
+            ;;
+        *)
+            echo "Keeping Rust build packages."
+            ;;
+    esac
+}
+
 echo "Installing system prerequisites..."
 if [ -f /etc/debian_version ]; then
     apt-get update
@@ -44,12 +82,31 @@ else
     cp "$PROJECT_ROOT"/config.example.json /opt/simple-nms/config.json
 fi
 
+echo "Configuring UDP Syslog collector..."
+DEFAULT_COLLECTOR=$(python3 -c "import json; print(json.load(open('/opt/simple-nms/config.json')).get('syslog', {}).get('collector', 'rust'))" 2>/dev/null || echo "rust")
+read -r -p "UDP Syslog collector (rust/python) [$DEFAULT_COLLECTOR]: " USER_COLLECTOR || true
+SYSLOG_COLLECTOR="${USER_COLLECTOR:-$DEFAULT_COLLECTOR}"
+SYSLOG_COLLECTOR="${SYSLOG_COLLECTOR,,}"
+case "$SYSLOG_COLLECTOR" in
+    rust)
+        install_rust_toolchain
+        cargo build --release --manifest-path "$PROJECT_ROOT/rust-syslog/Cargo.toml"
+        cp "$PROJECT_ROOT"/rust-syslog/target/release/simplenms-syslog /opt/simple-nms/
+        cargo clean --manifest-path "$PROJECT_ROOT/rust-syslog/Cargo.toml"
+        ;;
+    python) ;;
+    *)
+        echo "Error: UDP Syslog collector must be rust or python."
+        exit 1
+        ;;
+esac
+
 # Configure SNMP Trap community
 echo "Configuring SNMP Trap community..."
 DEFAULT_COMMUNITY=$(python3 -c "import json; print(json.load(open('/opt/simple-nms/config.json')).get('snmptrap', {}).get('community', 'simplenms'))" 2>/dev/null || echo "simplenms")
 read -r -p "SNMP Trap community [$DEFAULT_COMMUNITY]: " USER_COMMUNITY || true
 USER_COMMUNITY="${USER_COMMUNITY:-$DEFAULT_COMMUNITY}"
-SNMP_COMMUNITY="$USER_COMMUNITY" python3 -c "
+SNMP_COMMUNITY="$USER_COMMUNITY" SYSLOG_COLLECTOR="$SYSLOG_COLLECTOR" python3 -c "
 import json
 import os
 path = '/opt/simple-nms/config.json'
@@ -61,6 +118,9 @@ except Exception:
 if 'snmptrap' not in data:
     data['snmptrap'] = {}
 data['snmptrap']['community'] = os.environ['SNMP_COMMUNITY']
+if 'syslog' not in data:
+    data['syslog'] = {}
+data['syslog']['collector'] = os.environ['SYSLOG_COLLECTOR']
 if 'syslog_tls' not in data:
     data['syslog_tls'] = {
         'enabled': False,
@@ -95,6 +155,9 @@ find /opt/simple-nms -type f -exec chmod 640 {} +
 
 # 3. Ensure entrypoints and venv binaries are executable by the group
 chmod 750 /opt/simple-nms/main.py
+if [ "$SYSLOG_COLLECTOR" = "rust" ]; then
+    chmod 750 /opt/simple-nms/simplenms-syslog
+fi
 find /opt/simple-nms/venv/bin -type f -exec chmod 750 {} +
 
 # 4. Make the persistent data directory fully owned and writable by the simplenms user
@@ -145,3 +208,5 @@ echo "   Place your custom MIB files (.txt/.mib/.my) in:"
 echo "   /opt/simple-nms/data/mibs"
 echo "   Then restart the service to apply: sudo systemctl restart simple-nms"
 echo "=================================================================="
+
+remove_rust_build_packages

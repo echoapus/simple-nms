@@ -1,18 +1,18 @@
 # Installation Guide
 
-This guide applies to **Simple NMS v26.8.26**.
-
 ## Prerequisites
 
 - **Python 3.10+** (Debian 12 ships with 3.11)
+- **Rust/Cargo** — required only for the default Rust UDP Syslog collector (the installer offers Rust or Python)
 - **pip** (Python package manager)
 - **snmptrap** for local SNMP testing (`snmp` on Debian/Ubuntu, `net-snmp-utils` on RHEL/CentOS)
 - No external database, web server, or message broker required
 
 ## Deployment Architecture
 
-All enabled listeners run inside one Simple NMS process. Choose which ports are
-reachable at the host firewall or reverse proxy; they are not separate services.
+Simple NMS uses the Python UDP Syslog collector or, by default, starts a local Rust
+collector for high-volume UDP Syslog. Choose which ports are reachable at the host
+firewall or reverse proxy; they are not separate deployable services.
 
 ```mermaid
 flowchart LR
@@ -22,8 +22,8 @@ flowchart LR
         ADMINS[Operators]
     end
 
-    subgraph PROCESS[One Simple NMS process]
-        SYSLOG[Syslog collector]
+    subgraph PROCESS[Simple NMS service]
+        SYSLOG[Rust or Python Syslog collector]
         TLS[Syslog TLS collector]
         SNMP[SNMP Trap collector]
         HTTP[HTTP listener]
@@ -61,7 +61,7 @@ The only persistent runtime directory is `data/`: it contains the SQLite databas
 the Web UI configuration overlay, uploaded TLS files, and custom MIBs. Back up the
 whole directory rather than only `events.db` if you need a complete restore.
 
-## Option A: Bare-Metal Install (Debian 12 / Ubuntu 22.04)
+## Supported deployment: systemd on Linux
 
 ### 1. Run the installer
 
@@ -69,7 +69,7 @@ whole directory rather than only `events.db` if you need a complete restore.
 sudo ./scripts/install.sh
 ```
 
-The installer asks for the SNMP Trap community, creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, installs the systemd unit, and starts the service. Press Enter to keep the existing community during an upgrade or use `simplenms` on a first install.
+The installer asks for the UDP Syslog collector (`rust` or `python`) and SNMP Trap community, creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, installs the systemd unit, and starts the service. Rust is the default; when selected, the installer downloads Cargo/Rust if needed, compiles and deploys the collector, then removes its build artifacts and offers to remove only build packages it installed.
 
 ### 2. Manual install
 
@@ -77,6 +77,10 @@ The installer asks for the SNMP Trap community, creates the `simplenms` user, co
 sudo useradd -r -m -d /opt/simple-nms -s /usr/sbin/nologin simplenms
 sudo mkdir -p /opt/simple-nms/data /opt/simple-nms/scripts
 sudo cp -r src/simplenms/* requirements.txt config.example.json /opt/simple-nms/
+# Only when syslog.collector is "rust"
+sudo cargo build --release --manifest-path rust-syslog/Cargo.toml
+sudo cp rust-syslog/target/release/simplenms-syslog /opt/simple-nms/
+sudo cargo clean --manifest-path rust-syslog/Cargo.toml
 sudo python3 -m venv /opt/simple-nms/venv
 sudo /opt/simple-nms/venv/bin/pip install -r /opt/simple-nms/requirements.txt
 sudo chown -R root:simplenms /opt/simple-nms
@@ -112,6 +116,7 @@ sudo nano /opt/simple-nms/config.json
     },
     "syslog": {
         "enabled": true,
+        "collector": "rust",
         "host": "0.0.0.0",
         "port": 514,
         "deny_ips": []
@@ -145,6 +150,10 @@ Use the Web UI **Settings → Syslog TLS** card to upload the server certificate
 
 The **Service** card saves SNMP community and Web/Webhook settings separately. Changing the Web/Webhook port requires a service restart; TLS changes do not.
 
+### UDP Syslog collector
+
+`syslog.collector` selects the UDP listener: `rust` is the default for high-rate traffic and runs as a local child process; `python` uses the in-process collector and does not require Cargo. Select it during `scripts/install.sh`, or update the setting and restart `simple-nms`. Syslog TLS remains Python-based.
+
 ### Syslog source denylist
 
 Use **Settings → Syslog source denylist** to enter one complete IPv4 or IPv6 address per line. Saving validates and immediately applies the list to both UDP and TLS collectors without restarting the service. Matching sources are dropped before parsing and storage. Clear the field and save to allow all sources again.
@@ -154,6 +163,7 @@ The same setting is stored in `syslog.deny_ips`:
 ```json
 "syslog": {
     "enabled": true,
+    "collector": "rust",
     "host": "0.0.0.0",
     "port": 514,
     "deny_ips": ["192.0.2.10", "2001:db8::10"]
@@ -266,52 +276,13 @@ Simple NMS trusts `X-Forwarded-For` and `X-Real-IP` only when the immediate peer
 
 ---
 
-## Option B: Docker
-
-### 1. Build and run
-
-```bash
-# Copy config.example.json to config.json and edit it first if you need custom ports or MIB paths
-docker compose up -d
-```
-
-### 2. Verify
-
-```bash
-docker compose ps
-docker compose logs -f simple-nms
-curl -s http://localhost/health
-```
-
-The Compose file grants `NET_BIND_SERVICE` so the non-root container user can bind to ports 80, 162, and 514 inside the container.
-
-### 3. Data persistence
-
-The SQLite database is stored in a Docker volume `nms-data`. To back up:
-
-```bash
-docker compose exec simple-nms cp /app/data/events.db /app/data/events.db.bak
-docker cp simple-nms:/app/data/events.db.bak ./backup/
-```
-
-### 4. Data retention in Docker
-
-```bash
-# API cleanup from the host
-curl -X POST http://localhost/api/events/cleanup \
-  -H "Content-Type: application/json" \
-  -d '{"before_ts":"2026-01-01T00:00:00"}'
-
-```
-
----
-
 ## Manual Start (development / testing)
 
 For testing on non-privileged ports without root:
 
 ```bash
 # Copy config.example.json to config.json and set ports to 8080 (webhook), 5514 (syslog), 1162 (snmptrap)
+cargo build --release --manifest-path rust-syslog/Cargo.toml
 cd src/simplenms
 python3 main.py ../../config.json
 ```

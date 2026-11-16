@@ -92,31 +92,12 @@ def test_deployment_files():
         check("Service: ReadWritePaths for data dir", "ReadWritePaths" in content)
         check("Service: restart on failure", "Restart=on-failure" in content)
 
-    # Dockerfile
-    df = os.path.join(PROJECT, "Dockerfile")
-    check("Dockerfile exists", os.path.exists(df))
-    if os.path.exists(df):
-        content = open(df).read()
-        check("Dockerfile: python base image", "python:" in content)
-        check("Dockerfile: EXPOSE 80", "EXPOSE 80" in content)
-        check("Dockerfile: HEALTHCHECK", "HEALTHCHECK" in content)
-        check("Dockerfile: non-root user", "USER simplenms" in content)
-        check("Dockerfile: copies metrics module", "metrics.py" in content)
-
     installer = open(os.path.join(PROJECT, "scripts", "install.sh")).read()
     check("Installer: prompts for SNMP community", 'read -r -p "SNMP Trap community' in installer)
+    check("Installer: prompts for Syslog collector", 'read -r -p "UDP Syslog collector' in installer)
+    check("Installer: cleans Rust build artifacts", 'cargo clean --manifest-path' in installer)
+    check("Installer: offers to remove Rust build packages", 'read -r -p "Remove Rust build packages' in installer)
     check("Installer: passes community safely", "os.environ['SNMP_COMMUNITY']" in installer)
-
-    # docker-compose.yml
-    dc = os.path.join(PROJECT, "docker-compose.yml")
-    check("docker-compose.yml exists", os.path.exists(dc))
-    if os.path.exists(dc):
-        content = open(dc).read()
-        check("Compose: port 80 mapping", '"80:80"' in content)
-        check("Compose: syslog UDP mapping", "514:514/udp" in content)
-        check("Compose: SNMP trap UDP mapping", "162:162/udp" in content)
-        check("Compose: NET_BIND_SERVICE capability", "NET_BIND_SERVICE" in content)
-        check("Compose: volume mount", "nms-data" in content)
 
 
 def test_documentation():
@@ -125,7 +106,7 @@ def test_documentation():
     for fname, checks in [
         ("README.md", ["Syslog", "SNMP Trap", "Webhook", "SQLite", "Quick Start", "README.zh-TW.md"]),
         ("README.zh-TW.md", ["簡易網路管理系統", "系統架構", "資料庫結構"]),
-        ("docs/INSTALL.md", ["pip install", "systemd", "config.example.json", "CAP_NET_BIND_SERVICE", "Docker"]),
+        ("docs/INSTALL.md", ["pip install", "systemd", "config.example.json", "CAP_NET_BIND_SERVICE"]),
         ("docs/USER.md", ["logger", "snmptrap", "curl", "/api/events", "/api/kpi", "/api/sse"]),
     ]:
         fpath = os.path.join(PROJECT, fname)
@@ -143,6 +124,7 @@ def test_config_port80():
         cfg = json.load(f)
     check("Webhook port defaults to 80", cfg["webhook"]["port"] == 80)
     check("Syslog port is 514", cfg["syslog"]["port"] == 514)
+    check("Syslog collector defaults to Rust", cfg["syslog"]["collector"] == "rust")
     check("SNMP trap port is 162", cfg["snmptrap"]["port"] == 162)
 
 

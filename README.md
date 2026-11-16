@@ -2,12 +2,10 @@
 
 Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, and **Webhook** events into a single SQLite database, with a real-time web dashboard.
 
-Current release: **v26.8.26**.
-
 ## Features
 
-- **Four event inputs** handled in one process:
-  - Syslog (UDP 514) — RFC 3164 and RFC 5424 parsing (structured data to JSON, header metadata as tags)
+- **Four event inputs** handled by one service:
+  - Syslog (UDP 514) — selectable Rust (default) or Python collector for RFC 3164 and RFC 5424 parsing
   - SNMP Trap (UDP 162) — via pysnmp, varbinds stored as JSON
   - Webhook (HTTP POST `/webhook`) — JSON ingestion
   - Syslog TLS (TCP 6514, RFC 5425) — optional TLS listener with RFC 6587 octet-counting framing and newline-framing compatibility; configure certificates in the Web UI Settings page
@@ -23,7 +21,7 @@ Current release: **v26.8.26**.
   - Responsive layout (mobile-friendly)
   - Server-Sent Events (SSE) for live updates
   - Task-oriented Settings page: independent Service, Syslog denylist, Syslog TLS, and custom MIB controls
-- **Single Python process** — no external web server, message broker, or database server required
+- **Python service plus optional Rust Syslog collector** — no external web server, message broker, or database server required
 - **Reliability** — write failures are logged and tracked via dropped metrics
 - **Reverse-proxy aware webhooks** — direct clients use the socket peer IP; requests forwarded by a local proxy can use `X-Forwarded-For` / `X-Real-IP` for the original client IP
 - **Runtime SNMP community updates** — Web UI config changes update the running SNMP trap listener without restarting the service
@@ -34,6 +32,8 @@ Current release: **v26.8.26**.
 ```bash
 # Install dependencies for local development
 pip install -r requirements.txt
+# Only required when syslog.collector is "rust" (the default)
+cargo build --release --manifest-path rust-syslog/Cargo.toml
 
 # Start on privileged ports (uses config.json from repo root)
 cd src/simplenms
@@ -51,7 +51,7 @@ For a system install with virtualenv, permissions, MIB files, and systemd servic
 sudo ./scripts/install.sh
 ```
 
-The installer asks for the SNMP Trap community. Press Enter to keep the existing value during an upgrade or use `simplenms` on a first install.
+The installer selects the UDP Syslog collector (`rust` or `python`), configures the SNMP Trap community, and installs the systemd service. Rust is the default for high-volume UDP Syslog; Python needs no Rust toolchain.
 
 ## Reverse Proxy / HAProxy
 
@@ -77,8 +77,8 @@ Forwarded client IP headers are trusted only when the immediate peer is loopback
 
 ## Architecture
 
-Simple NMS runs as one Python process. Collection, storage, queries, and live
-delivery are separate runtime paths inside that process:
+Simple NMS uses the Python collector or, by default, a local Rust process for
+high-volume UDP Syslog. Collection, storage, queries, and live delivery remain separate runtime paths:
 
 ```mermaid
 flowchart LR
@@ -89,8 +89,9 @@ flowchart LR
         HOOK[External systems<br/>POST /webhook]
     end
 
-    subgraph NMS[Single Simple NMS process]
-        SC[Syslog collectors<br/>parse + normalize]
+    subgraph NMS[Simple NMS service]
+        SC[Rust or Python UDP Syslog collector<br/>parse + normalize]
+        TC[Python TLS Syslog collector<br/>parse + normalize]
         NC[SNMP collector<br/>resolve MIB names + normalize]
         WEB[Flask / Werkzeug<br/>UI + REST + webhook + SSE]
         Q[Bounded write queue<br/>50,000 events]
@@ -102,10 +103,11 @@ flowchart LR
     BROWSER[Browser dashboard]
 
     UDP --> SC
-    TLS --> SC
+    TLS --> TC
     SNMP --> NC
     HOOK --> WEB
     SC --> Q
+    TC --> Q
     NC --> Q
     WEB -->|webhook event| Q
     Q --> WRITER
@@ -155,6 +157,10 @@ on a trusted management network or place an authenticated reverse proxy in front
 - **Syslog TLS** uses a deliberate flow: upload the server certificate/private key (and CA certificate for mTLS), then select **Apply TLS changes**. This immediately reloads TLS and disconnects current TLS Syslog clients. Files are stored under `data/tls/`; private keys are never returned by the API.
 - **Custom MIBs** upload and delete independently; uploaded MIBs are loaded by the running resolver when possible.
 
+### UDP Syslog collector
+
+Set `syslog.collector` to `rust` for the default high-throughput UDP collector or `python` to keep collection in the Python service. Change this setting with `scripts/install.sh` and restart the systemd service. Syslog TLS always uses the Python TLS collector.
+
 ## Tests
 
 ```bash
@@ -163,6 +169,8 @@ python3 tests/test_phase2.py
 python3 tests/test_phase3.py
 python3 tests/test_phase4.py
 python3 tests/test_syslog_tls.py
+python3 tests/test_syslog_collector_choice.py
+python3 tests/test_rust_syslog.py
 ```
 
 The SNMP community hot-update check can also be run against a live service:

@@ -1,23 +1,21 @@
 # Simple NMS — 簡易網路管理系統
 
-目前版本：**v26.8.26**。
-
 繁體中文專案說明。English overview: [README.md](README.md).
 
 ## 專案概述
 
-Simple NMS 是一套輕量級的網路管理系統，設計目標是用最少的元件完成網路事件的收集、儲存與即時呈現。整個系統只有一個 Python 進程，不需要外部 Web Server、Message Queue 或資料庫伺服器。
+Simple NMS 是一套輕量級的網路管理系統，收集、儲存並即時呈現網路事件。服務以 Python 處理 API、SNMP、Webhook 與資料庫；UDP Syslog 可選擇 Python collector 或預設的 Rust collector。不需要外部 Web Server、Message Queue 或資料庫伺服器。
 
 適用場景：中小型網路環境的 NOC（網路營運中心）值班監控、實驗室環境測試、或作為大型 NMS 的輕量補充。
 
 ### 核心能力
 
-- **四種事件輸入**：Syslog（UDP 514）、Syslog TLS（TCP 6514）、SNMP Trap（UDP 162）、Webhook（HTTP POST）
+- **四種事件輸入**：Syslog（UDP 514，可選 Rust 或 Python）、Syslog TLS（TCP 6514）、SNMP Trap（UDP 162）、Webhook（HTTP POST）
 - **即時來源封鎖**：Web UI 可驗證並即時套用 IPv4/IPv6 Syslog denylist，不需重啟 UDP/TLS listener
 - **統一儲存**：所有事件寫入單一 SQLite 資料庫，易於備份與查詢
 - **即時儀表板**：瀏覽器開啟即可使用，支援即時事件、視覺化統計圖表、過濾、搜尋、排序、亮/暗主題
 - **MIB 解析**：自動將 SNMP OID 翻譯為人類可讀的名稱（如 `IF-MIB::ifIndex`）
-- **低外部服務需求**：僅需 Python 3.10+ 與少量 pip 套件，不需要外部資料庫或 message broker
+- **低外部服務需求**：僅需 Python 3.10+ 與少量 pip 套件；選擇 Rust Syslog 時才需要 Cargo，不需要外部資料庫或 message broker
 
 ---
 
@@ -25,7 +23,7 @@ Simple NMS 是一套輕量級的網路管理系統，設計目標是用最少的
 
 ### 整體架構圖
 
-Simple NMS 只有一個 Python 進程，但收集、寫入、查詢與即時推送是四條分工明確的路徑：
+Simple NMS 以 Python service 處理收集、寫入、查詢與即時推送；選擇 Rust 時，UDP Syslog 會由本機 Rust process 接收並送入相同的寫入佇列：
 
 ```mermaid
 flowchart LR
@@ -36,8 +34,9 @@ flowchart LR
         HOOK[外部系統<br/>POST /webhook]
     end
 
-    subgraph NMS[單一 Simple NMS 進程]
-        SC[Syslog Collectors<br/>解析與標準化]
+    subgraph NMS[Simple NMS service]
+        SC[Rust 或 Python UDP Syslog<br/>解析與標準化]
+        TC[Python TLS Syslog<br/>解析與標準化]
         NC[SNMP Collector<br/>MIB 解析與標準化]
         WEB[Flask / Werkzeug<br/>UI + REST + Webhook + SSE]
         Q[有界寫入佇列<br/>最多 50,000 筆]
@@ -49,10 +48,11 @@ flowchart LR
     BROWSER[瀏覽器儀表板]
 
     UDP --> SC
-    TLS --> SC
+    TLS --> TC
     SNMP --> NC
     HOOK --> WEB
     SC --> Q
+    TC --> Q
     NC --> Q
     WEB -->|Webhook event| Q
     Q --> WRITER
@@ -76,12 +76,12 @@ flowchart LR
 
 ### 執行緒模型
 
-整個系統運行在單一 Python 進程中，透過多執行緒處理並行任務：
+Python service 透過多執行緒處理並行任務；選擇 Rust 時另有本機 UDP Syslog process：
 
 | 執行緒 | 名稱 | 職責 |
 |--------|------|------|
 | Main Thread | `main` | 載入設定、啟動所有元件、處理 SIGINT/SIGTERM 信號 |
-| Thread 1 | `syslog-collector` | 監聽 UDP 514，解析 RFC 3164 與 RFC 5424 PRI/欄位，推入 Write Queue |
+| UDP Syslog | `simplenms-syslog` 或 `syslog-collector` | 依 `syslog.collector` 使用 Rust 或 Python 接收 UDP 514，解析 RFC 3164/5424 並推入 Write Queue |
 | Thread 2 | `snmptrap-collector` | 監聽 UDP 162，透過 pysnmp 接收 Trap，MIB 解析後推入 Write Queue |
 | Thread 3 | `web-server` | Werkzeug HTTP Server，處理 Web UI、REST API、Webhook、SSE |
 | Thread 4 | `db-writer` | 從 Write Queue 取出事件，批次 INSERT 到 SQLite，成功後觸發 SSE 廣播 |
@@ -146,15 +146,16 @@ simple-nms/
 │   ├── web_app.py               # Flask app（Webhook + REST API + SSE + 靜態頁面）
 │   ├── mibs.py                  # MIB 檔案探索、模組名稱解析、symlink 管理
 │   ├── collectors/
-│   │   ├── syslog_listener.py   # Syslog UDP 收聽 + RFC 3164/5424 解析
+│   │   ├── rust_syslog.py       # Rust UDP Syslog 與 Python Write Queue bridge
+│   │   ├── syslog_factory.py    # 選擇 Rust 或 Python UDP collector
+│   │   ├── syslog_listener.py   # Python UDP/TLS Syslog 解析
 │   │   └── snmp_listener.py     # SNMP Trap 收聽 + MIB 解析 + Source IP 擷取
 │   └── static/
 │       └── index.html           # 完整 Web UI（HTML + CSS + JS，單一檔案）
 │
 ├── deploy/
 │   └── simple-nms.service       # systemd 服務單元檔
-├── Dockerfile                   # Docker 容器化部署
-├── docker-compose.yml           # Docker Compose 快速啟動
+├── rust-syslog/                 # Rust UDP Syslog collector
 │
 ├── README.md                    # English project overview
 ├── README.zh-TW.md              # 繁體中文專案說明
@@ -177,6 +178,7 @@ simple-nms/
 - Debian 12 或 Ubuntu 22.04（其他 Linux 發行版亦可）
 - Python 3.10+（Debian 12 預裝 3.11）
 - pip3
+- Cargo（僅選擇 Rust UDP Syslog 時需要；安裝程式會自動處理）
 
 ### 第一步：安裝系統套件
 
@@ -206,7 +208,7 @@ cd simple-nms
 sudo ./scripts/install.sh
 ```
 
-安裝程式會詢問 SNMP Trap community。首次安裝直接按 Enter 會使用 `simplenms`；重新安裝或升級時，直接按 Enter 會保留目前設定值。
+安裝程式會詢問 UDP Syslog collector（`rust` 或 `python`）及 SNMP Trap community。`rust` 是高流量 UDP Syslog 的預設選項；選擇 `python` 不需要 Rust toolchain。Rust binary 複製到服務目錄後，安裝程式會清除編譯暫存檔，並可選擇移除本次安裝的 Rust build 套件。
 
 ### 第四步：設定 config.json
 
@@ -221,6 +223,7 @@ sudo ./scripts/install.sh
     },
     "syslog": {
         "enabled": true,
+        "collector": "rust",
         "host": "0.0.0.0",
         "port": 514,
         "deny_ips": []
@@ -255,6 +258,7 @@ sudo ./scripts/install.sh
 | `database.path` | SQLite 檔案位置（相對於執行目錄） |
 | `writer.batch_size` | 每次批次寫入的最大筆數 |
 | `writer.flush_interval_ms` | 未滿一批時的最長等待時間（毫秒） |
+| `syslog.collector` | UDP Syslog collector：`rust`（預設）或 `python`；修改後重啟服務 |
 | `syslog.deny_ips` | 要封鎖的 Syslog 來源 IPv4/IPv6 位址；UDP 與 TLS 共用 |
 | `snmptrap.community` | SNMP community string（需與網路設備一致） |
 | `snmptrap.mib_dirs` | ASN.1 MIB 檔案搜尋路徑（可放多個目錄） |

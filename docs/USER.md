@@ -1,7 +1,5 @@
 # User Guide
 
-This guide applies to **Simple NMS v26.8.26**.
-
 ## How Events Move Through Simple NMS
 
 All inputs use the same storage pipeline, so an event is visible in the live UI
@@ -47,6 +45,8 @@ change persistent state.
 ## Generating Test Events
 
 ### Syslog
+
+UDP Syslog uses the Rust collector by default. Set `syslog.collector` to `python` in `config.json` when a single Python process is preferred, then restart `simple-nms`. Syslog TLS always uses the Python TLS collector.
 
 Send test syslog messages using `logger` (installed by default on Linux):
 

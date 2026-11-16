@@ -17,7 +17,8 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from database import init_db, DBWriter
-from collectors.syslog_listener import SyslogCollector, SyslogTLSCollector
+from collectors.syslog_factory import build_syslog_collector
+from collectors.syslog_listener import SyslogTLSCollector
 from web_app import create_app, sse_hub
 
 # ---------------------------------------------------------------------------
@@ -208,15 +209,24 @@ def main() -> None:
     syslog_cfg = cfg.get("syslog", {})
     sc = None
     if syslog_cfg.get("enabled", False):
-        sc = SyslogCollector(
-            write_queue,
-            host=syslog_cfg.get("host", "0.0.0.0"),
-            port=syslog_cfg.get("port", 514),
-            deny_ips=syslog_cfg.get("deny_ips"),
-        )
+        collector_kind = syslog_cfg.get("collector", "rust")
+        collector_args = {
+            "host": syslog_cfg.get("host", "0.0.0.0"),
+            "port": syslog_cfg.get("port", 514),
+            "deny_ips": syslog_cfg.get("deny_ips"),
+        }
+        try:
+            sc = build_syslog_collector(collector_kind, write_queue, runtime_dir=data_dir, **collector_args)
+        except ValueError:
+            logger.warning("Unknown syslog.collector %r; using Python", collector_kind)
+            collector_kind = "python"
+            sc = build_syslog_collector(collector_kind, write_queue, runtime_dir=data_dir, **collector_args)
         sc.start()
         threads.append(sc)
-        logger.info("Syslog collector started on :%d/udp", syslog_cfg.get("port", 514))
+        if getattr(sc, "start_error", None):
+            logger.error("Rust syslog collector was not started: %s", sc.start_error)
+        else:
+            logger.info("%s syslog collector started on :%d/udp", collector_kind.title(), syslog_cfg.get("port", 514))
 
     # SNMP trap collector
     snmp_cfg = cfg.get("snmptrap", {})
