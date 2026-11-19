@@ -12,11 +12,11 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
 - **SQLite storage** with WAL mode for concurrent writes, batched inserts (~5,000+ events/sec)
 - **Real-time web dashboard** on port 80:
   - KPI cards (total / syslog / snmptrap / webhook counts)
-  - Interactive Tabs: **Live Feed** and **Analytics Dashboard** (Event timeline, type distribution, severity breakdown, top source IPs)
+  - Interactive Tabs: **Live Feed** and **Summary Dashboard** (Per-source message rates, type distribution, severity breakdown, top source IPs)
   - Filterable event table with column sorting
   - Global search with 300ms debounce
   - Time range selector (5min / 1hr / today / custom)
-  - Event type and source IP filters
+  - Event type filters; global search also covers source IPs
   - Dark/light theme toggle
   - Responsive layout (mobile-friendly)
   - Resource-conscious Server-Sent Events (SSE): 250ms event batches, capped 200-event in-memory buffers, deduplicated database IDs, and throttled KPI refreshes
@@ -154,7 +154,7 @@ on a trusted management network or place an authenticated reverse proxy in front
 - Use `GET /api/status` for collector, writer, queue, and retention status.
 - **Service** settings save the SNMP community and Web/Webhook port independently. A Web port change still requires a service restart.
 - **Syslog source denylist** accepts one IPv4 or IPv6 address per line and immediately updates both UDP and TLS collectors.
-- **Syslog TLS** uses a deliberate flow: upload the server certificate/private key (and CA certificate for mTLS), then select **Apply TLS changes**. This immediately reloads TLS and disconnects current TLS Syslog clients. Files are stored under `data/tls/`; private keys are never returned by the API.
+- **Syslog TLS** uses a deliberate flow: upload the server certificate/private key (and CA certificate for mTLS), then select **Apply TLS**. This reloads TLS and disconnects current TLS clients. Files are stored under `data/tls/`; private keys are never returned by the API.
 - **Custom MIBs** upload and delete independently; uploaded MIBs are loaded by the running resolver when possible.
 
 ### UDP Syslog collector

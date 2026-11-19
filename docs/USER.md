@@ -89,7 +89,7 @@ print('Sent RFC 5424 syslog message')
 
 ### Syslog over TLS (RFC 5425)
 
-In **Settings → Syslog TLS**, upload the TLS server certificate and private key, enable **TLS Syslog**, then select **Apply TLS changes**. Applying immediately reloads TCP port 6514 and disconnects existing TLS clients. RFC 6587 octet-counting framing is preferred; newline-delimited TLS Syslog is also accepted for appliance compatibility.
+In **Settings → Syslog TLS**, upload the TLS server certificate and private key, enable **TLS Syslog**, then select **Apply TLS**. Applying reloads TCP port 6514 and disconnects existing TLS clients. RFC 6587 octet-counting framing is preferred; newline-delimited TLS Syslog is also accepted for appliance compatibility.
 
 This sends an RFC 5424 event to a local test listener with a self-signed certificate:
 
@@ -114,7 +114,7 @@ Open **Settings → Syslog source denylist**, enter one complete IPv4 or IPv6 ad
 
 - **Service** saves SNMP community and Web/Webhook port without touching TLS. Restart the service after changing the Web/Webhook port.
 - **Syslog source denylist** updates UDP and TLS source blocking immediately without restarting either listener.
-- **Syslog TLS** stages certificate uploads separately; only **Apply TLS changes** restarts that listener.
+- **Syslog TLS** stages certificate uploads separately; only **Apply TLS** restarts that listener.
 - **Custom MIBs** upload and delete independently, so MIB work never interrupts Syslog TLS.
 
 ### SNMP Trap
@@ -185,7 +185,7 @@ Displays the most recent events with columns:
 
 Toggle the main page panel view:
 - **Live Feed** — Displays the standard Event Table list.
-- **Analytics** — Renders interactive charts powered by Chart.js, including:
+- **Summary** — Renders interactive charts powered by Chart.js, including:
   - **Event Volume Timeline**: Displays log frequency (auto-scales between hourly and daily buckets).
   - **Event Types**: Doughnut chart breaking down event ingestion shares.
   - **Severity Levels**: Horizontal bar chart outlining severity breakdowns.
@@ -204,8 +204,7 @@ The search box in the header searches across payload, source IP, facility, sever
 
 - **Time Range** — Quick buttons (5 min / 1 hour / Today / All) or custom date range picker
 - **Event Type** — Checkboxes to show/hide Syslog, SNMP Trap, Webhook
-- **Source IP** — Text input for prefix matching (e.g., `10.0.0` matches all IPs starting with that prefix)
-- **Clear All Filters** — Reset all filters to default
+- **Clear Filters** — Reset all filters to default
 - **Clear Old Events** — Opens a confirmation dialog. Select a date to permanently delete events before that date.
 
 On mobile (screen width < 768px), the sidebar collapses into a drawer menu — tap the ☰ button in the header to open it.
@@ -276,7 +275,9 @@ Response:
 
 ### GET /api/analytics
 
-Query aggregate event distributions and timelines for visualization charts. It accepts the same filter parameters as `GET /api/events` (e.g., `time_from`, `time_to`, `type`, `src_ip`, `severity`, and `q`).
+Query aggregate event distributions and per-source message rates for the Summary tab. It accepts the same filter parameters as `GET /api/events` (e.g., `time_from`, `time_to`, `type`, `src_ip`, `severity`, and `q`).
+
+The Summary tab also shows database write status: writer state, queue depth, total rows written, last flush time, dropped event count, and the latest write error.
 
 Response structure:
 ```json
@@ -296,11 +297,9 @@ Response structure:
     { "ip": "10.0.0.1", "count": 2 },
     { "ip": "127.0.0.1", "count": 2 }
   ],
-  "timeline": [
-    { "time": "2026-06-17T12:00:00", "count": 3 },
-    { "time": "2026-06-17T13:00:00", "count": 4 }
-  ],
-  "timeline_scale": "hour"
+  "source_rates": [
+    { "source": "10.0.0.1", "total": 42, "average_mpm": 3.5, "peak_mpm": 9 }
+  ]
 }
 ```
 

@@ -13,6 +13,7 @@ import ipaddress
 import json
 import logging
 import queue
+import re
 import sqlite3
 import tempfile
 import threading
@@ -81,12 +82,12 @@ def _build_where(args) -> tuple[list, list]:
 
     q = args.get("q")
     if q:
-        like = f"%{q}%"
-        conditions.append(
-            "(payload LIKE ? OR src_ip LIKE ? OR facility LIKE ? "
-            "OR severity LIKE ? OR oid LIKE ? OR tags LIKE ?)"
-        )
-        params.extend([like] * 6)
+        tokens = re.findall(r"[0-9A-Za-z_]+", q)
+        if tokens:
+            conditions.append("id IN (SELECT rowid FROM events_fts WHERE events_fts MATCH ?)")
+            params.append(" AND ".join(f'"{token}"*' for token in tokens))
+        else:
+            conditions.append("0")
 
     return conditions, params
 
@@ -372,31 +373,33 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
         ).fetchall()
         top_ips_res = [{"ip": r["src_ip"] or "unknown", "count": r["count"]} for r in ip_rows]
 
-        span_row = db.execute(f"SELECT MIN(ts), MAX(ts) FROM events {where}", params).fetchone()
-        scale = "hour"
-        if span_row and span_row[0] and span_row[1]:
-            try:
-                min_t = datetime.fromisoformat(span_row[0].rstrip("Z").replace(" ", "T"))
-                max_t = datetime.fromisoformat(span_row[1].rstrip("Z").replace(" ", "T"))
-                if (max_t - min_t).days > 3:
-                    scale = "day"
-            except ValueError:
-                pass
-
-        strftime_clause = "strftime('%Y-%m-%d', ts)" if scale == "day" else "strftime('%Y-%m-%dT%H:00:00', ts)"
-        timeline_rows = db.execute(
-            f"SELECT {strftime_clause} as bucket, COUNT(*) as count "
-            f"FROM events {where} GROUP BY bucket ORDER BY bucket ASC",
+        rate_rows = db.execute(
+            f"SELECT COALESCE(src_ip, 'unknown') AS source, "
+            f"strftime('%Y-%m-%dT%H:%M:00', ts) AS minute, COUNT(*) AS count "
+            f"FROM events {where} GROUP BY source, minute ORDER BY source, minute",
             params,
         ).fetchall()
-        timeline_res = [{"time": r["bucket"], "count": r["count"]} for r in timeline_rows]
+        source_rates = {}
+        for row in rate_rows:
+            source = row["source"]
+            rate = source_rates.setdefault(source, {"total": 0, "minutes": []})
+            rate["total"] += row["count"]
+            rate["minutes"].append(row["count"])
+        source_rates_res = [
+            {
+                "source": source,
+                "total": rate["total"],
+                "average_mpm": round(rate["total"] / len(rate["minutes"]), 2),
+                "peak_mpm": max(rate["minutes"]),
+            }
+            for source, rate in sorted(source_rates.items(), key=lambda item: (-item[1]["total"], item[0]))
+        ]
 
         return jsonify({
             "types": types_res,
             "severities": severities_res,
             "top_ips": top_ips_res,
-            "timeline": timeline_res,
-            "timeline_scale": scale,
+            "source_rates": source_rates_res,
         })
 
     # ------------------------------------------------------------------

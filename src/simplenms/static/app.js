@@ -12,7 +12,6 @@
     order: localStorage.getItem('nms_order') || 'desc',
     q: '',
     types: ['syslog', 'snmptrap', 'webhook'],
-    srcIp: '',
     timeFrom: '',
     timeTo: '',
     timeRange: 'all',
@@ -24,7 +23,6 @@
   };
 
   // --- Chart instances ---
-  let chartTimelineInstance = null;
   let chartTypesInstance = null;
   let chartSeveritiesInstance = null;
   let chartSourcesInstance = null;
@@ -49,7 +47,6 @@
     sidebarOverlay: $('#sidebarOverlay'),
     timeFrom: $('#timeFrom'),
     timeTo: $('#timeTo'),
-    srcIpFilter: $('#srcIpFilter'),
     clearFilters: $('#clearFilters'),
     openCleanupModal: $('#openCleanupModal'),
     kpiTotal: $('#kpiTotal'),
@@ -174,7 +171,6 @@
     p.set('order', state.order);
     if (state.q) p.set('q', state.q);
     if (state.types.length < 3) p.set('type', state.types.join(','));
-    if (state.srcIp) p.set('src_ip', state.srcIp);
     if (state.timeFrom) p.set('time_from', state.timeFrom);
     if (state.timeTo) p.set('time_to', state.timeTo);
     return p.toString();
@@ -306,7 +302,7 @@
         <td class="col-ip">${escapeHtml(e.src_ip || '')}</td>
         <td class="col-type"><span class="type-badge ${e.type}">${escapeHtml(e.type)}</span></td>
         <td class="col-severity">${e.severity ? `<span class="severity-dot ${severityClass}"></span>${escapeHtml(e.severity)}` : '<span style="color:var(--text-muted)">—</span>'}</td>
-        <td class="col-payload" onclick="NMS.showDetail(${idx})">${escapeHtml(payload)}</td>
+        <td class="col-payload" tabindex="0" role="button" aria-label="Open event details" onclick="NMS.showDetail(${idx})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); NMS.showDetail(${idx}); }">${escapeHtml(payload)}</td>
       </tr>`;
     }).join('');
   }
@@ -461,7 +457,7 @@
 
   function matchesLiveEvent(event) {
     if (state.currentTab !== 'feed' || state.page !== 1 || state.sort !== 'ts' || state.order !== 'desc') return false;
-    if (!state.types.includes(event.type) || (state.srcIp && !(event.src_ip || '').startsWith(state.srcIp))) return false;
+    if (!state.types.includes(event.type)) return false;
     const eventTime = parseUtcTimestamp(event.ts);
     if (state.timeFrom && (!eventTime || eventTime < new Date(state.timeFrom))) return false;
     if (state.timeTo && (!eventTime || eventTime > new Date(state.timeTo))) return false;
@@ -585,11 +581,9 @@
   // ── Clear filters ──
   function clearFilters() {
     state.q = '';
-    state.srcIp = '';
     state.types = ['syslog', 'snmptrap', 'webhook'];
     state.page = 1;
     dom.globalSearch.value = '';
-    dom.srcIpFilter.value = '';
     $$('#typeFilters input[type="checkbox"]').forEach(cb => { cb.checked = true; });
     setTimeRange('all');
   }
@@ -608,13 +602,42 @@
   async function fetchAnalytics() {
     setLoading(true);
     try {
-      const resp = await fetch(`/api/analytics?${buildQueryParams()}`);
+      const [resp, healthResp] = await Promise.all([
+        fetch(`/api/analytics?${buildQueryParams()}`),
+        fetch('/health'),
+      ]);
       const data = await resp.json();
+      const health = await healthResp.json();
       renderCharts(data);
+      renderDbWriteStatus(health);
     } catch (err) {
       console.error('Failed to fetch analytics:', err);
     }
     setLoading(false);
+  }
+
+  function renderDbWriteStatus(health) {
+    const writer = health.db_writer || {};
+    const queue = health.queue || {};
+    const dropped = health.metrics?.dropped_events || {};
+    const droppedTotal = Object.entries(dropped)
+      .filter(([type]) => type !== 'sse')
+      .reduce((sum, [, count]) => sum + count, 0);
+    document.getElementById('dbWriteStatus').textContent = writer.alive ? 'Running' : 'Stopped';
+    document.getElementById('dbWriteQueue').textContent = `${formatNumber(queue.size || 0)} / ${formatNumber(queue.max_size || 0)}`;
+    document.getElementById('dbWriteTotal').textContent = formatNumber(writer.total_written || 0);
+    const lastFlush = formatStatusTime(writer.last_flush_at);
+    document.getElementById('dbWriteLastFlush').textContent = lastFlush;
+    document.getElementById('dbWriteDropped').textContent = formatNumber(droppedTotal);
+    const error = writer.last_error || 'None';
+    document.getElementById('dbWriteError').textContent = error;
+    document.getElementById('dbWriteError').title = error;
+  }
+
+  function formatStatusTime(value) {
+    if (!value) return '--';
+    const date = new Date(value.endsWith('Z') || /[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
+    return isNaN(date) ? value : date.toLocaleString();
   }
 
   function getThemeColors() {
@@ -632,70 +655,21 @@
     };
   }
 
-  function formatTimelineLabel(timeStr, scale) {
-    if (!timeStr) return '';
-    try {
-      const d = parseUtcTimestamp(timeStr.replace(' ', 'T'));
-      if (scale === 'day') {
-        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-      } else {
-        return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-      }
-    } catch (_) {
-      return timeStr;
-    }
-  }
-
   function renderCharts(data) {
     const colors = getThemeColors();
 
-    // 1. Timeline Chart (Line)
-    const ctxTimeline = document.getElementById('chartTimeline').getContext('2d');
-    if (chartTimelineInstance) chartTimelineInstance.destroy();
-    
-    const timelineLabels = data.timeline.map(x => formatTimelineLabel(x.time, data.timeline_scale));
-    const timelineValues = data.timeline.map(x => x.count);
+    const sourceRatesBody = document.getElementById('sourceRatesBody');
+    sourceRatesBody.innerHTML = data.source_rates.length ? data.source_rates.map(rate => `
+      <tr><td>${escapeHtml(rate.source)}</td><td>${formatNumber(rate.total)}</td>
+      <td>${rate.average_mpm.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+      <td>${formatNumber(rate.peak_mpm)}</td></tr>
+    `).join('') : '<tr><td colspan="4">No matching events</td></tr>';
 
-    chartTimelineInstance = new Chart(ctxTimeline, {
-      type: 'line',
-      data: {
-        labels: timelineLabels,
-        datasets: [{
-          label: 'Events Count',
-          data: timelineValues,
-          borderColor: colors.accent,
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
-          fill: true,
-          tension: 0.3,
-          borderWidth: 2
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            mode: 'index',
-            intersect: false
-          }
-        },
-        scales: {
-          x: {
-            grid: { color: colors.border },
-            ticks: { color: colors.textMuted }
-          },
-          y: {
-            grid: { color: colors.border },
-            ticks: { color: colors.textMuted, stepSize: 1 },
-            beginAtZero: true
-          }
-        }
-      }
-    });
-
-    // 2. Event Types Chart (Doughnut)
-    const ctxTypes = document.getElementById('chartTypes').getContext('2d');
+    // 1. Event Types Chart (Doughnut)
+    const typesCanvas = document.getElementById('chartTypes');
+    typesCanvas.setAttribute('role', 'img');
+    typesCanvas.setAttribute('aria-label', `Event types: Syslog ${data.types.syslog || 0}, SNMP Trap ${data.types.snmptrap || 0}, Webhook ${data.types.webhook || 0}`);
+    const ctxTypes = typesCanvas.getContext('2d');
     if (chartTypesInstance) chartTypesInstance.destroy();
 
     const typeLabels = ['Syslog', 'SNMP Trap', 'Webhook'];
@@ -724,7 +698,10 @@
     });
 
     // 3. Severities Chart (Bar)
-    const ctxSeverities = document.getElementById('chartSeverities').getContext('2d');
+    const severitiesCanvas = document.getElementById('chartSeverities');
+    severitiesCanvas.setAttribute('role', 'img');
+    severitiesCanvas.setAttribute('aria-label', `Severity levels: ${Object.entries(data.severities).map(([key, value]) => `${key} ${value}`).join(', ') || 'none'}`);
+    const ctxSeverities = severitiesCanvas.getContext('2d');
     if (chartSeveritiesInstance) chartSeveritiesInstance.destroy();
 
     const sevMap = {
@@ -795,7 +772,10 @@
     });
 
     // 4. Top Sources Chart (Bar)
-    const ctxSources = document.getElementById('chartSources').getContext('2d');
+    const sourcesCanvas = document.getElementById('chartSources');
+    sourcesCanvas.setAttribute('role', 'img');
+    sourcesCanvas.setAttribute('aria-label', `Top sources: ${data.top_ips.map(item => `${item.ip} ${item.count}`).join(', ') || 'none'}`);
+    const ctxSources = sourcesCanvas.getContext('2d');
     if (chartSourcesInstance) chartSourcesInstance.destroy();
 
     const sourceLabels = data.top_ips.map(x => x.ip);
@@ -835,7 +815,13 @@
   // ── Switch View Tabs ──
   function switchTab(tab) {
     state.currentTab = tab;
-    $$('.tab-btn').forEach(b => b.classList.remove('active'));
+    const tabIds = { feed: 'tabFeed', analytics: 'tabAnalytics', settings: 'tabSettings' };
+    $$('.tab-btn').forEach(b => {
+      const selected = b.id === tabIds[tab];
+      b.classList.toggle('active', selected);
+      b.setAttribute('aria-selected', selected);
+      b.tabIndex = selected ? 0 : -1;
+    });
     $$('.tab-content').forEach(c => c.classList.remove('active'));
 
     if (tab === 'feed') {
@@ -943,8 +929,7 @@
       if (resp.ok) {
         const data = await resp.json();
         if (data.port_changed) {
-          showToast('Config saved. Restart service to apply new port');
-          alert('Configuration saved successfully.\n\nNOTE: You have changed the web server port. You must restart the service in terminal to apply the new port:\n\nsudo systemctl restart simple-nms');
+          showToast('Config saved. Restart service to apply the new port');
         } else {
           showToast('Service settings saved');
         }
@@ -956,7 +941,7 @@
       showToast('Failed to save configuration');
     }
     btn.disabled = false;
-    btn.textContent = 'Save service settings';
+    btn.textContent = 'Save';
   }
 
   async function saveDenyIps() {
@@ -980,7 +965,7 @@
       showToast('Failed to save denylist');
     }
     btn.disabled = false;
-    btn.textContent = 'Save denylist';
+    btn.textContent = 'Save';
   }
 
   async function applyTlsConfig() {
@@ -988,7 +973,7 @@
     const port = parseInt($('#inputSyslogTlsPort').value, 10);
     const enabled = $('#inputSyslogTlsEnabled').checked;
     if (!host || isNaN(port) || port < 1 || port > 65535) return showToast('TLS host and port must be valid');
-    if (enabled && !confirm('Applying TLS changes disconnects current TLS Syslog clients. Continue?')) return;
+    if (enabled && !confirm('Reloading disconnects current TLS clients. Continue?')) return;
     const btn = $('#btnApplyTls');
     btn.disabled = true; btn.textContent = 'Applying…';
     try {
@@ -999,8 +984,8 @@
       if (!resp.ok) throw new Error(data.error || 'TLS reload failed');
       showToast(enabled ? 'TLS listener reloaded' : 'TLS listener disabled');
       fetchSettings();
-    } catch (err) { showToast(`TLS changes not applied: ${err.message}`); }
-    btn.disabled = false; btn.textContent = 'Apply TLS changes';
+    } catch (err) { showToast(`TLS not applied: ${err.message}`); }
+    btn.disabled = false; btn.textContent = 'Apply TLS';
   }
 
   async function deleteMib(filename) {
@@ -1153,13 +1138,6 @@
         refresh();
       });
     });
-
-    // IP filter (debounced)
-    dom.srcIpFilter.addEventListener('input', debounce(() => {
-      state.srcIp = dom.srcIpFilter.value.trim();
-      state.page = 1;
-      refresh();
-    }, 300));
 
     // Sort headers
     $$('thead th[data-sort]').forEach(th => {

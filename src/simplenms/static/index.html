@@ -19,18 +19,16 @@
 </head>
 <body>
 <div class="app">
-  <!-- Loading bar -->
   <div class="loading-bar" id="loadingBar" style="width:0"></div>
 
-  <!-- Header -->
   <header class="header">
     <div class="header-left">
-      <button class="sidebar-toggle" id="sidebarToggle" title="Toggle filters">&#9776;</button>
+      <button class="sidebar-toggle" id="sidebarToggle" title="Toggle filters" aria-label="Toggle filters">&#9776;</button>
       <div class="header-logo">simple<span class="dot">.</span>nms</div>
       <span class="app-version" id="appVersion">v--</span>
       <div class="header-status">
         <span class="status-dot" id="statusDot"></span>
-        <span id="lastUpdate">connecting...</span>
+        <span id="lastUpdate" aria-live="polite">connecting...</span>
       </div>
     </div>
     <div class="header-right">
@@ -40,7 +38,8 @@
       </a>
       <div class="search-box">
         <span class="search-icon">&#128269;</span>
-        <input type="text" id="globalSearch" placeholder="Search events..." autocomplete="off">
+        <label class="sr-only" for="globalSearch">Search events, IPs, messages</label>
+        <input type="text" id="globalSearch" placeholder="Search events, IPs, messages..." autocomplete="off">
       </div>
       <button class="theme-toggle" id="themeToggle">
         <span id="themeIcon">&#9788;</span>
@@ -50,10 +49,8 @@
   </header>
 
   <div class="main">
-    <!-- Sidebar overlay (mobile) -->
     <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
-    <!-- Sidebar filters -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-section">
         <h3>Time Range</h3>
@@ -64,9 +61,9 @@
           <button class="time-btn active" data-range="all">All</button>
         </div>
         <div class="date-range">
-          <label>From</label>
+          <label for="timeFrom">From</label>
           <input type="datetime-local" id="timeFrom" step="1">
-          <label>To</label>
+          <label for="timeTo">To</label>
           <input type="datetime-local" id="timeTo" step="1">
         </div>
       </div>
@@ -93,14 +90,7 @@
       </div>
 
       <div class="sidebar-section">
-        <h3>Source IP</h3>
-        <div class="ip-filter">
-          <input type="text" id="srcIpFilter" placeholder="e.g. 10.0.0 or 192.168.1.1" autocomplete="off">
-        </div>
-      </div>
-
-      <div class="sidebar-section">
-        <button class="clear-filters" id="clearFilters">Clear All Filters</button>
+        <button class="clear-filters" id="clearFilters">Clear Filters</button>
       </div>
 
       <div class="sidebar-section">
@@ -109,9 +99,7 @@
       </div>
     </aside>
 
-    <!-- Content -->
     <main class="content">
-      <!-- KPI Cards -->
       <div class="kpi-grid">
         <div class="kpi-card total">
           <div class="kpi-label">Total Events</div>
@@ -131,16 +119,13 @@
         </div>
       </div>
 
-      <!-- View Tabs -->
-      <div class="tabs-container">
-        <button class="tab-btn active" id="tabFeed" onclick="NMS.switchTab('feed')">Live Feed</button>
-        <button class="tab-btn" id="tabAnalytics" onclick="NMS.switchTab('analytics')">Analytics</button>
-        <button class="tab-btn" id="tabSettings" onclick="NMS.switchTab('settings')">Settings</button>
+      <div class="tabs-container" role="tablist" aria-label="Main views">
+        <button class="tab-btn active" id="tabFeed" role="tab" aria-selected="true" aria-controls="viewFeed" tabindex="0" onclick="NMS.switchTab('feed')">Live Feed</button>
+        <button class="tab-btn" id="tabAnalytics" role="tab" aria-selected="false" aria-controls="viewAnalytics" tabindex="-1" onclick="NMS.switchTab('analytics')">Summary</button>
+        <button class="tab-btn" id="tabSettings" role="tab" aria-selected="false" aria-controls="viewSettings" tabindex="-1" onclick="NMS.switchTab('settings')">Settings</button>
       </div>
 
-      <!-- Tab Content: Live Feed -->
-      <div id="viewFeed" class="tab-content active">
-        <!-- Event Table -->
+      <div id="viewFeed" class="tab-content active" role="tabpanel" aria-labelledby="tabFeed" tabindex="0">
         <div class="table-container">
           <div class="table-toolbar">
             <div class="table-info">
@@ -166,14 +151,27 @@
         </div>
       </div>
 
-      <!-- Tab Content: Analytics -->
-      <div id="viewAnalytics" class="tab-content">
+      <div id="viewAnalytics" class="tab-content" role="tabpanel" aria-labelledby="tabAnalytics" tabindex="0">
         <div class="analytics-dashboard">
+          <div class="analytics-card db-status-card">
+            <h4>DB Writes</h4>
+            <div class="db-status-grid">
+              <div><span>Status</span><strong id="dbWriteStatus">--</strong></div>
+              <div><span>Queue</span><strong id="dbWriteQueue">--</strong></div>
+              <div><span>Written</span><strong id="dbWriteTotal">--</strong></div>
+              <div><span>Last flush</span><strong id="dbWriteLastFlush">--</strong></div>
+              <div><span>Dropped</span><strong id="dbWriteDropped">--</strong></div>
+              <div><span>Last error</span><strong id="dbWriteError">None</strong></div>
+            </div>
+          </div>
           <div class="analytics-row">
-            <div class="analytics-card timeline-card">
-              <h4>Event Volume Timeline</h4>
-              <div class="chart-container">
-                <canvas id="chartTimeline"></canvas>
+            <div class="analytics-card source-rate-card">
+              <h4>Messages/min by Source</h4>
+              <div class="source-rate-container">
+                <table class="source-rate-table">
+                  <thead><tr><th>Source</th><th>Total</th><th>Average / min</th><th>Peak / min</th></tr></thead>
+                  <tbody id="sourceRatesBody"></tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -200,26 +198,25 @@
         </div>
       </div>
 
-      <!-- Tab Content: Settings -->
-      <div id="viewSettings" class="tab-content">
+      <div id="viewSettings" class="tab-content" role="tabpanel" aria-labelledby="tabSettings" tabindex="0">
         <div class="settings-container">
           <section class="settings-card">
-            <div class="settings-card-header"><div><h3>Service</h3><p>SNMP Trap authentication and Web/Webhook listener.</p></div></div>
+            <div class="settings-card-header"><div><h3>Service</h3><p>SNMP community and web listener.</p></div></div>
             <div class="settings-grid">
               <div class="settings-field"><label for="inputCommunity">SNMP Trap community</label><input type="text" id="inputCommunity" placeholder="simplenms"></div>
               <div class="settings-field"><label for="inputWebhookPort">Web / Webhook port</label><input type="number" id="inputWebhookPort" min="1" max="65535" placeholder="80"></div>
             </div>
-            <div class="settings-actions"><button class="btn btn-primary" id="btnSaveService">Save service settings</button><span class="settings-note">Changing the Web port requires a service restart.</span></div>
+            <div class="settings-actions"><button class="btn btn-primary" id="btnSaveService">Save</button><span class="settings-note">Changing the web port requires a restart.</span></div>
           </section>
 
           <section class="settings-card">
-            <div class="settings-card-header"><div><h3>Syslog source denylist</h3><p>Drop syslog messages (UDP and TLS) from these source IPs before they are parsed or stored.</p></div></div>
+            <div class="settings-card-header"><div><h3>Syslog denylist</h3><p>Drop Syslog from these IPs before storage.</p></div></div>
             <div class="settings-field"><label for="inputSyslogDenyIps">Denied IPs (one per line)</label><textarea id="inputSyslogDenyIps" rows="4" placeholder="10.0.0.5&#10;192.168.1.99" style="width:100%; padding:8px 10px; border:1px solid var(--border-input); border-radius:var(--radius); background:var(--bg-input); color:var(--text-primary); font:inherit; resize:vertical;"></textarea></div>
-            <div class="settings-actions"><button class="btn btn-primary" id="btnSaveDenyIps">Save denylist</button><span class="settings-note">Applied immediately, no restart needed.</span></div>
+            <div class="settings-actions"><button class="btn btn-primary" id="btnSaveDenyIps">Save</button><span class="settings-note">Applied immediately.</span></div>
           </section>
 
           <section class="settings-card">
-            <div class="settings-card-header"><div><h3>Syslog TLS</h3><p>RFC 5425 listener. Upload files first, then apply changes.</p></div><span class="settings-status" id="syslogTlsOverallStatus">Checking…</span></div>
+            <div class="settings-card-header"><div><h3>Syslog TLS</h3><p>Upload certificates, then apply.</p></div><span class="settings-status" id="syslogTlsOverallStatus">Checking…</span></div>
             <div class="settings-grid">
               <label class="settings-toggle"><input type="checkbox" id="inputSyslogTlsEnabled"> Enable TLS listener</label>
               <label class="settings-toggle"><input type="checkbox" id="inputSyslogTlsClientCert"> Require client certificate (mTLS)</label>
@@ -231,11 +228,11 @@
               <div class="tls-file"><strong>Private key</strong><input type="file" id="syslogTlsKey" accept=".key,.pem"><span class="tls-file-status" id="syslogTlsKeyStatus"></span><button class="btn" data-tls-upload="key">Upload</button></div>
               <div class="tls-file"><strong>CA certificate</strong><input type="file" id="syslogTlsCa" accept=".crt,.cer,.pem"><span class="tls-file-status" id="syslogTlsCaStatus"></span><button class="btn" data-tls-upload="ca">Upload</button></div>
             </div>
-            <div class="settings-actions"><button class="btn btn-primary" id="btnApplyTls">Apply TLS changes</button><span class="settings-note">Applying changes immediately reloads TLS and disconnects current TLS Syslog clients.</span></div>
+            <div class="settings-actions"><button class="btn btn-primary" id="btnApplyTls">Apply TLS</button><span class="settings-note">Reload disconnects current TLS clients.</span></div>
           </section>
 
           <section class="settings-card">
-            <div class="settings-card-header"><div><h3>Custom MIBs</h3><p>Upload ASN.1 MIB files for friendlier SNMP trap names.</p></div></div>
+            <div class="settings-card-header"><div><h3>Custom MIBs</h3><p>Upload MIBs to resolve trap names.</p></div></div>
             
             <div class="settings-subsection">
               <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
@@ -251,7 +248,7 @@
                   <thead>
                     <tr style="background-color: rgba(0,0,0,0.02); border-bottom: 1px solid var(--border);">
                       <th style="padding: 12px 16px; font-weight: 600;">Filename</th>
-                      <th style="padding: 12px 16px; font-weight: 600;">Parsed Module Name</th>
+                      <th style="padding: 12px 16px; font-weight: 600;">Module</th>
                       <th style="padding: 12px 16px; font-weight: 600; width: 120px;">Size</th>
                       <th style="padding: 12px 16px; font-weight: 600; text-align: right; width: 80px;">Actions</th>
                     </tr>
@@ -271,14 +268,13 @@
   </div>
 </div>
 
-<!-- Detail Modal -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
     <div class="modal-header">
       <h3>Event Detail</h3>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="modal-copy" id="modalCopy" title="Copy to clipboard">Copy</button>
-        <button class="modal-close" id="modalClose">&times;</button>
+        <button class="modal-close" id="modalClose" aria-label="Close event details">&times;</button>
       </div>
     </div>
     <div class="modal-meta" id="modalMeta"></div>
@@ -288,12 +284,11 @@
   </div>
 </div>
 
-<!-- Cleanup Confirmation Modal -->
 <div class="modal-overlay" id="cleanupModal">
   <div class="modal">
     <div class="modal-header">
       <h3>Clear Old Events</h3>
-      <button class="modal-close" id="cleanupClose">&times;</button>
+      <button class="modal-close" id="cleanupClose" aria-label="Close cleanup dialog">&times;</button>
     </div>
     <div class="modal-form">
       <label for="cleanupDate">Delete events before this date</label>
@@ -309,8 +304,7 @@
   </div>
 </div>
 
-<!-- Toast -->
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="/static/app.js"></script>
 </body>

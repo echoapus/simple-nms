@@ -180,6 +180,9 @@ def test_api_events_filters():
     d = r.get_json()
     check("q=ops (in tags): 2 events", d["total"] == 2)
 
+    r = c.get('/api/events?q=" OR emergency')
+    check("search syntax is treated as text", r.status_code == 200)
+
     w.stop(); w.join(timeout=2)
 
 
@@ -382,14 +385,16 @@ def test_api_analytics():
     check("has types key", "types" in d)
     check("has severities key", "severities" in d)
     check("has top_ips key", "top_ips" in d)
-    check("has timeline key", "timeline" in d)
-    check("has timeline_scale key", "timeline_scale" in d)
+    check("has source rates key", "source_rates" in d)
 
     # Check content values
     check("types syslog count is 3", d["types"]["syslog"] == 3)
     check("types snmptrap count is 2", d["types"]["snmptrap"] == 2)
     check("types webhook count is 2", d["types"]["webhook"] == 2)
     check("top_ips has 127.0.0.1", any(item["ip"] == "127.0.0.1" for item in d["top_ips"]))
+    source = next(item for item in d["source_rates"] if item["source"] == "10.0.0.1")
+    check("source rate total is 2", source["total"] == 2)
+    check("source rate peak is 1 message/minute", source["peak_mpm"] == 1)
 
     # Test with type filter
     r2 = c.get("/api/analytics?type=syslog")

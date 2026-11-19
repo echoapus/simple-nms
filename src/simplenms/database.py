@@ -31,6 +31,28 @@ CREATE INDEX IF NOT EXISTS idx_events_type    ON events(type);
 CREATE INDEX IF NOT EXISTS idx_events_src_ip  ON events(src_ip);
 CREATE INDEX IF NOT EXISTS idx_events_severity ON events(severity);
 CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(type, ts);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
+    payload, src_ip, facility, severity, oid, tags,
+    content='events', content_rowid='id'
+);
+
+CREATE TRIGGER IF NOT EXISTS events_fts_ai AFTER INSERT ON events BEGIN
+    INSERT INTO events_fts(rowid, payload, src_ip, facility, severity, oid, tags)
+    VALUES (new.id, new.payload, new.src_ip, new.facility, new.severity, new.oid, new.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS events_fts_ad AFTER DELETE ON events BEGIN
+    INSERT INTO events_fts(events_fts, rowid, payload, src_ip, facility, severity, oid, tags)
+    VALUES ('delete', old.id, old.payload, old.src_ip, old.facility, old.severity, old.oid, old.tags);
+END;
+
+CREATE TRIGGER IF NOT EXISTS events_fts_au AFTER UPDATE ON events BEGIN
+    INSERT INTO events_fts(events_fts, rowid, payload, src_ip, facility, severity, oid, tags)
+    VALUES ('delete', old.id, old.payload, old.src_ip, old.facility, old.severity, old.oid, old.tags);
+    INSERT INTO events_fts(rowid, payload, src_ip, facility, severity, oid, tags)
+    VALUES (new.id, new.payload, new.src_ip, new.facility, new.severity, new.oid, new.tags);
+END;
 """
 
 INSERT_SQL = """
@@ -43,8 +65,13 @@ def init_db(db_path: str) -> None:
     """Create database directory, tables and indexes."""
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     conn = sqlite3.connect(db_path)
+    fts_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'events_fts'"
+    ).fetchone()
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA_SQL)
+    if not fts_exists:
+        conn.execute("INSERT INTO events_fts(events_fts) VALUES ('rebuild')")
     conn.commit()
     conn.close()
     logger.info("Database initialised: %s", db_path)
