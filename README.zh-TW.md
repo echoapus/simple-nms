@@ -209,7 +209,7 @@ cd simple-nms
 sudo ./scripts/install.sh
 ```
 
-安裝程式會詢問 UDP Syslog collector（`rust` 或 `python`）及 SNMP Trap community。`rust` 是高流量 UDP Syslog 的預設選項；選擇 `python` 不需要 Rust toolchain。Rust binary 複製到服務目錄後，安裝程式會清除編譯暫存檔，並可選擇移除本次安裝的 Rust build 套件。
+安裝程式會詢問 UDP Syslog collector（`rust` 或 `python`）、Web portal TCP 連接埠（預設沿用現有設定，新安裝為 80）及 SNMP Trap community。Web portal 與 webhook 共用此連接埠。`rust` 是高流量 UDP Syslog 的預設選項；選擇 `python` 不需要 Rust toolchain。Rust binary 複製到服務目錄後，安裝程式會清除編譯暫存檔，並可選擇移除本次安裝的 Rust build 套件。
 
 ### 第四步：設定 config.json
 

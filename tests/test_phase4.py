@@ -99,6 +99,62 @@ def test_deployment_files():
     check("Installer: offers to remove Rust build packages", 'read -r -p "Remove Rust build packages' in installer)
     check("Installer: passes community safely", "os.environ['SNMP_COMMUNITY']" in installer)
 
+    prompt = installer.split('echo "Configuring web portal port..."', 1)[1].split('# Configure SNMP Trap community', 1)[0]
+    writer = installer.split('SYSLOG_COLLECTOR="$SYSLOG_COLLECTOR" python3 -c "\n', 1)[1].split('\n"', 1)[0]
+    with tempfile.TemporaryDirectory() as directory:
+        config_path = os.path.join(directory, "config.json")
+        for saved, entered, expected in [(None, "\n", 80), (8080, "\n", 8080), (80, "00808\n", 808), (80, "65535\n", 65535), (80, "0\n", None), (80, "65536\n", None), (80, "abc\n", None), (80, "999999999999\n", None)]:
+            original = {"webhook": {"host": "127.0.0.1"}, "snmptrap": {"community": "saved"}}
+            if saved is not None:
+                original["webhook"]["port"] = saved
+            with open(config_path, "w") as config:
+                json.dump(original, config)
+            script = 'export CFG_FILE=' + repr(config_path) + '\n' + prompt
+            script += '\nexport WEB_PORT SNMP_COMMUNITY=saved SYSLOG_COLLECTOR=python\n'
+            script += 'python3 - <<\'PY\'\n' + writer.replace('/opt/simple-nms/config.json', config_path) + '\nPY\n'
+            result = subprocess.run(["bash", "-ec", script], input=entered, text=True, capture_output=True)
+            with open(config_path) as config:
+                updated = json.load(config)
+            check(f"Installer: web port {entered.strip()!r}, saved {saved}",
+                  (result.returncode != 0 and updated == original) if expected is None else
+                  (result.returncode == 0 and updated["webhook"] == {"host": "127.0.0.1", "port": expected}))
+
+        selector = installer.split('# Match the service\'s data-directory configuration override.', 1)[1].split('echo "Configuring UDP Syslog collector..."', 1)[0]
+        data_dir = os.path.join(directory, "custom-data")
+        os.makedirs(data_dir)
+        overlay_path = os.path.join(data_dir, "config.json")
+        for database_path in ("custom-data/events.db", os.path.join(data_dir, "events.db")):
+            base = {"database": {"path": database_path}, "webhook": {"port": 80}}
+            for overlay in (None, {"webhook": {"port": 8080, "host": "127.0.0.1"}, "retention": {"days": 42}}):
+                with open(config_path, "w") as config:
+                    json.dump(base, config)
+                if overlay is not None:
+                    with open(overlay_path, "w") as config:
+                        json.dump(overlay, config)
+                elif os.path.exists(overlay_path):
+                    os.remove(overlay_path)
+                script = selector.replace('/opt/simple-nms', directory) + prompt
+                script += '\nexport WEB_PORT SNMP_COMMUNITY=saved SYSLOG_COLLECTOR=python\n'
+                script += 'python3 - <<\'PY\'\n' + writer + '\nPY\n'
+                result = subprocess.run(["bash", "-ec", script], input="\n", text=True, capture_output=True)
+                active_path = overlay_path if overlay is not None else config_path
+                with open(active_path) as config:
+                    updated = json.load(config)
+                check(f"Installer: active port preserved for {database_path}, overlay={overlay is not None}",
+                      result.returncode == 0 and updated["webhook"]["port"] == (8080 if overlay else 80))
+                if overlay is not None:
+                    with open(config_path) as config:
+                        check("Installer: base config preserved", json.load(config) == base)
+                    check("Installer: unrelated overlay settings preserved", updated["retention"] == overlay["retention"])
+                    result = subprocess.run(["bash", "-ec", script], input="9090\n", text=True, capture_output=True)
+                    with open(overlay_path) as config:
+                        updated = json.load(config)
+                    check("Installer: selected port written to overlay", result.returncode == 0 and updated["webhook"]["port"] == 9090)
+
+    startup = installer.split('echo "Starting simple-nms..."', 1)[1].split('# Retrieve primary local IP address', 1)[0]
+    result = subprocess.run(["bash", "-ec", 'systemctl() { echo "$*"; }\n' + startup], capture_output=True, text=True)
+    check("Installer: enables and restarts service", result.returncode == 0 and result.stdout.splitlines() == ["daemon-reload", "enable simple-nms", "restart simple-nms"])
+
 
 def test_documentation():
     print("\n=== Documentation ===")

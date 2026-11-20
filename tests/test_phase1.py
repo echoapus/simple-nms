@@ -101,6 +101,16 @@ def test_webhook():
                headers={"Content-Type": "application/json"})
     check("Invalid JSON -> 400", r.status_code == 400)
 
+    for body in ([], [1], "text", 123, True, None):
+        r = c.post("/webhook", data=json.dumps(body),
+                   headers={"Content-Type": "application/json"})
+        check(f"Non-object JSON {body!r} -> 400", r.status_code == 400)
+        check("Rejected JSON does not queue an event", wq.empty())
+
+    r = c.post("/webhook", json={})
+    check("Empty JSON object -> 202", r.status_code == 202)
+    check("Empty JSON object queues an event", wq.get_nowait()["payload"] == "{}")
+
     r = c.get("/health")
     check("/health -> 200", r.status_code == 200)
 

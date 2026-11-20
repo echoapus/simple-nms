@@ -51,7 +51,7 @@ For a system install with virtualenv, permissions, MIB files, and systemd servic
 sudo ./scripts/install.sh
 ```
 
-The installer selects the UDP Syslog collector (`rust` or `python`), configures the SNMP Trap community, and installs the systemd service. Rust is the default for high-volume UDP Syslog; Python needs no Rust toolchain.
+The installer selects the UDP Syslog collector (`rust` or `python`), asks for the web portal TCP port (default: existing setting or 80) and SNMP Trap community, and installs the systemd service. The web portal and webhook share this port. Rust is the default for high-volume UDP Syslog; Python needs no Rust toolchain.
 
 ## Reverse Proxy / HAProxy
 

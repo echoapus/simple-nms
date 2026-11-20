@@ -69,7 +69,9 @@ whole directory rather than only `events.db` if you need a complete restore.
 sudo ./scripts/install.sh
 ```
 
-The installer asks for the UDP Syslog collector (`rust` or `python`) and SNMP Trap community, creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, installs the systemd unit, and starts the service. Rust is the default; when selected, the installer downloads Cargo/Rust if needed, compiles and deploys the collector, then removes its build artifacts and offers to remove only build packages it installed.
+The installer asks for the UDP Syslog collector (`rust` or `python`), web portal TCP port (1–65535, default: existing setting or 80), and SNMP Trap community, creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, installs the systemd unit, and starts the service. The web portal and webhook share the selected port. Rust is the default; when selected, the installer downloads Cargo/Rust if needed, compiles and deploys the collector, then removes its build artifacts and offers to remove only build packages it installed.
+
+On reinstall, the installer updates the active configuration (including a saved data-directory override) and restarts the service to apply the selected port. This briefly interrupts collection and web access.
 
 ### 2. Manual install
 

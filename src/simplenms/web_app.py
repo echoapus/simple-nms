@@ -208,6 +208,8 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
         body = request.get_json(silent=True)
         if body is None:
             return jsonify({"error": "invalid JSON"}), 400
+        if not isinstance(body, dict):
+            return jsonify({"error": "JSON body must be an object"}), 400
 
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
         evt = {

@@ -82,8 +82,28 @@ else
     cp "$PROJECT_ROOT"/config.example.json /opt/simple-nms/config.json
 fi
 
+# Match the service's data-directory configuration override.
+CFG_FILE=$(python3 -c "
+import json
+import os
+path = '/opt/simple-nms/config.json'
+with open(path, encoding='utf-8') as f:
+    cfg = json.load(f)
+data_dir = os.path.dirname(cfg.get('database', {}).get('path', 'data/events.db')) or 'data'
+overlay = os.path.join('/opt/simple-nms', data_dir, 'config.json')
+if os.path.exists(overlay) and overlay != path:
+    try:
+        with open(overlay, encoding='utf-8') as f:
+            json.load(f)
+        path = overlay
+    except Exception:
+        pass
+print(path)
+")
+export CFG_FILE
+
 echo "Configuring UDP Syslog collector..."
-DEFAULT_COLLECTOR=$(python3 -c "import json; print(json.load(open('/opt/simple-nms/config.json')).get('syslog', {}).get('collector', 'rust'))" 2>/dev/null || echo "rust")
+DEFAULT_COLLECTOR=$(python3 -c "import json, os; print(json.load(open(os.environ['CFG_FILE'])).get('syslog', {}).get('collector', 'rust'))" 2>/dev/null || echo "rust")
 read -r -p "UDP Syslog collector (rust/python) [$DEFAULT_COLLECTOR]: " USER_COLLECTOR || true
 SYSLOG_COLLECTOR="${USER_COLLECTOR:-$DEFAULT_COLLECTOR}"
 SYSLOG_COLLECTOR="${SYSLOG_COLLECTOR,,}"
@@ -101,15 +121,30 @@ case "$SYSLOG_COLLECTOR" in
         ;;
 esac
 
+echo "Configuring web portal port..."
+DEFAULT_WEB_PORT=$(python3 -c "import json, os; print(json.load(open(os.environ['CFG_FILE'])).get('webhook', {}).get('port', 80))")
+while true; do
+    read -r -p "Web portal TCP port [$DEFAULT_WEB_PORT]: " USER_WEB_PORT || true
+    WEB_PORT="${USER_WEB_PORT:-$DEFAULT_WEB_PORT}"
+    if [[ "$WEB_PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$WEB_PORT >= 1 && 10#$WEB_PORT <= 65535 )); then
+        WEB_PORT=$((10#$WEB_PORT))
+        break
+    fi
+    echo "Error: web portal port must be a number from 1 to 65535."
+    if [ ! -t 0 ]; then
+        exit 1
+    fi
+done
+
 # Configure SNMP Trap community
 echo "Configuring SNMP Trap community..."
-DEFAULT_COMMUNITY=$(python3 -c "import json; print(json.load(open('/opt/simple-nms/config.json')).get('snmptrap', {}).get('community', 'simplenms'))" 2>/dev/null || echo "simplenms")
+DEFAULT_COMMUNITY=$(python3 -c "import json, os; print(json.load(open(os.environ['CFG_FILE'])).get('snmptrap', {}).get('community', 'simplenms'))" 2>/dev/null || echo "simplenms")
 read -r -p "SNMP Trap community [$DEFAULT_COMMUNITY]: " USER_COMMUNITY || true
 USER_COMMUNITY="${USER_COMMUNITY:-$DEFAULT_COMMUNITY}"
-SNMP_COMMUNITY="$USER_COMMUNITY" SYSLOG_COLLECTOR="$SYSLOG_COLLECTOR" python3 -c "
+WEB_PORT="$WEB_PORT" SNMP_COMMUNITY="$USER_COMMUNITY" SYSLOG_COLLECTOR="$SYSLOG_COLLECTOR" python3 -c "
 import json
 import os
-path = '/opt/simple-nms/config.json'
+path = os.environ['CFG_FILE']
 try:
     with open(path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -121,6 +156,7 @@ data['snmptrap']['community'] = os.environ['SNMP_COMMUNITY']
 if 'syslog' not in data:
     data['syslog'] = {}
 data['syslog']['collector'] = os.environ['SYSLOG_COLLECTOR']
+data.setdefault('webhook', {})['port'] = int(os.environ['WEB_PORT'])
 if 'syslog_tls' not in data:
     data['syslog_tls'] = {
         'enabled': False,
@@ -168,8 +204,7 @@ chmod 700 /opt/simple-nms/data/tls
 
 # Detect port conflicts before starting the service
 echo "Checking for port conflicts..."
-CFG_FILE="/opt/simple-nms/config.json"
-read -r WEB_PORT SYSLOG_PORT SNMP_PORT TLS_ENABLED TLS_PORT < <(python3 -c "import json; cfg = json.load(open('$CFG_FILE')); tls = cfg.get('syslog_tls', {}); print(cfg.get('webhook', {}).get('port', 80), cfg.get('syslog', {}).get('port', 514), cfg.get('snmptrap', {}).get('port', 162), int(tls.get('enabled', False)), tls.get('port', 6514))" 2>/dev/null || echo "80 514 162 0 6514")
+read -r WEB_PORT SYSLOG_PORT SNMP_PORT TLS_ENABLED TLS_PORT < <(python3 -c "import json, os; cfg = json.load(open(os.environ['CFG_FILE'])); tls = cfg.get('syslog_tls', {}); print(cfg.get('webhook', {}).get('port', 80), cfg.get('syslog', {}).get('port', 514), cfg.get('snmptrap', {}).get('port', 162), int(tls.get('enabled', False)), tls.get('port', 6514))" 2>/dev/null || echo "80 514 162 0 6514")
 
 if command -v ss >/dev/null 2>&1; then
     if ss -tln | grep -q ":$WEB_PORT "; then
@@ -188,7 +223,8 @@ fi
 
 echo "Starting simple-nms..."
 systemctl daemon-reload
-systemctl enable --now simple-nms
+systemctl enable simple-nms
+systemctl restart simple-nms
 
 # Retrieve primary local IP address for user convenience
 PRIMARY_IP=$(hostname -I | awk '{print $1}' 2>/dev/null || ip route get 1.1.1.1 | awk '{print $7}' 2>/dev/null || echo "localhost")
