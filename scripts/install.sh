@@ -102,6 +102,27 @@ print(path)
 ")
 export CFG_FILE
 
+# Resolve the effective database path, including overlays without a database setting.
+DATABASE_PATH=$(python3 -c "
+import json
+import os
+with open('/opt/simple-nms/config.json', encoding='utf-8') as f:
+    base = json.load(f)
+with open(os.environ['CFG_FILE'], encoding='utf-8') as f:
+    cfg = json.load(f)
+path = cfg.get('database', {}).get('path', base.get('database', {}).get('path', 'data/events.db'))
+print(os.path.abspath(os.path.join('/opt/simple-nms', path)))
+")
+DATA_DIR=$(dirname "$DATABASE_PATH")
+case "$DATA_DIR" in
+    /|/opt/simple-nms)
+        echo "Error: database must be stored in a dedicated data directory."
+        exit 1
+        ;;
+esac
+export DATA_DIR
+mkdir -p "$DATA_DIR/mibs"
+
 echo "Configuring UDP Syslog collector..."
 DEFAULT_COLLECTOR=$(python3 -c "import json, os; print(json.load(open(os.environ['CFG_FILE'])).get('syslog', {}).get('collector', 'rust'))" 2>/dev/null || echo "rust")
 read -r -p "UDP Syslog collector (rust/python) [$DEFAULT_COLLECTOR]: " USER_COLLECTOR || true
@@ -111,7 +132,8 @@ case "$SYSLOG_COLLECTOR" in
     rust)
         install_rust_toolchain
         cargo build --release --manifest-path "$PROJECT_ROOT/rust-syslog/Cargo.toml"
-        cp "$PROJECT_ROOT"/rust-syslog/target/release/simplenms-syslog /opt/simple-nms/
+        install -m 750 "$PROJECT_ROOT"/rust-syslog/target/release/simplenms-syslog /opt/simple-nms/simplenms-syslog.new
+        mv -f /opt/simple-nms/simplenms-syslog.new /opt/simple-nms/simplenms-syslog
         cargo clean --manifest-path "$PROJECT_ROOT/rust-syslog/Cargo.toml"
         ;;
     python) ;;
@@ -178,6 +200,13 @@ python3 -m venv /opt/simple-nms/venv
 test -f "$PROJECT_ROOT/deploy/simple-nms.service" || { echo "Error: deploy/simple-nms.service not found"; exit 1; }
 sed 's|/usr/bin/python3|/opt/simple-nms/venv/bin/python3|g' "$PROJECT_ROOT/deploy/simple-nms.service" > /etc/systemd/system/simple-nms.service
 
+# systemd accepts C-style quoted paths; double percent signs to avoid specifiers.
+python3 -c '
+import json
+import os
+print("\n[Service]\nReadWritePaths=" + json.dumps(os.environ["DATA_DIR"].replace("%", "%%"), ensure_ascii=False))
+' >> /etc/systemd/system/simple-nms.service
+
 chown root:root /etc/systemd/system/simple-nms.service
 chmod 644 /etc/systemd/system/simple-nms.service
 
@@ -201,6 +230,16 @@ chown -R simplenms:simplenms /opt/simple-nms/data
 find /opt/simple-nms/data -type d -exec chmod 770 {} +
 find /opt/simple-nms/data -type f -exec chmod 660 {} +
 chmod 700 /opt/simple-nms/data/tls
+
+# Grant access to custom database storage without changing unrelated files.
+chown simplenms:simplenms "$DATA_DIR" "$DATA_DIR/mibs"
+chmod 770 "$DATA_DIR" "$DATA_DIR/mibs"
+for file in "$DATABASE_PATH" "$DATABASE_PATH-wal" "$DATABASE_PATH-shm" "$CFG_FILE"; do
+    if [ -f "$file" ] && [[ "$file" == "$DATA_DIR/"* ]]; then
+        chown simplenms:simplenms "$file"
+        chmod 660 "$file"
+    fi
+done
 
 # Detect port conflicts before starting the service
 echo "Checking for port conflicts..."

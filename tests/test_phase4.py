@@ -151,6 +151,54 @@ def test_deployment_files():
                         updated = json.load(config)
                     check("Installer: selected port written to overlay", result.returncode == 0 and updated["webhook"]["port"] == 9090)
 
+    with tempfile.TemporaryDirectory() as directory:
+        custom_dir = os.path.join(directory, 'custom data%')
+        config_path = os.path.join(directory, 'config.json')
+        overlay_path = os.path.join(directory, 'overlay.json')
+        with open(config_path, 'w') as config:
+            json.dump({"database": {"path": os.path.join(custom_dir, "events.db")}}, config)
+        with open(overlay_path, 'w') as config:
+            json.dump({"webhook": {"port": 8080}}, config)
+        resolver = installer.split('# Resolve the effective database path,', 1)[1].split('echo "Configuring UDP Syslog collector..."', 1)[0]
+        resolver = resolver[resolver.index('DATABASE_PATH='):].replace('/opt/simple-nms/config.json', config_path)
+        result = subprocess.run(['bash', '-ec', resolver + '\nprintf "%s" "$DATA_DIR"'],
+                                env={**os.environ, 'CFG_FILE': overlay_path}, capture_output=True, text=True)
+        check("Installer: custom database directory resolved through overlay",
+              result.returncode == 0 and result.stdout == custom_dir and os.path.isdir(os.path.join(custom_dir, 'mibs')))
+        database_path = os.path.join(custom_dir, 'events.db')
+        paths = [database_path, database_path + '-wal', database_path + '-shm', os.path.join(custom_dir, 'config.json')]
+        for path in paths:
+            with open(path, 'w') as file:
+                file.write('existing data')
+        permissions = installer.split('# Grant access to custom database storage without changing unrelated files.', 1)[1].split('# Detect port conflicts', 1)[0]
+        result = subprocess.run(['bash', '-ec', 'chown() { printf "%s\\n" "$@"; }\n' + permissions],
+                                env={**os.environ, 'DATA_DIR': custom_dir, 'DATABASE_PATH': database_path, 'CFG_FILE': paths[-1]}, capture_output=True, text=True)
+        check("Installer: custom database, sidecars and overlay get writable permissions",
+              result.returncode == 0 and all(os.stat(path).st_mode & 0o777 == 0o660 and path in result.stdout for path in paths)
+              and os.stat(custom_dir).st_mode & 0o777 == 0o770)
+        unit_path = os.path.join(directory, 'service')
+        grant = installer.split('# systemd accepts C-style quoted paths;', 1)[1].split('chown root:root', 1)[0]
+        grant = grant[grant.index('python3 -c'):].replace('/etc/systemd/system/simple-nms.service', unit_path)
+        result = subprocess.run(['bash', '-ec', grant], env={**os.environ, 'DATA_DIR': custom_dir}, capture_output=True, text=True)
+        with open(unit_path) as unit:
+            check("Installer: systemd grants custom path with spaces and literal percent",
+                  result.returncode == 0 and 'ReadWritePaths=' + json.dumps(custom_dir.replace('%', '%%')) in unit.read())
+
+        binary_path = os.path.join(directory, 'sleep')
+        shutil.copyfile(shutil.which('sleep'), binary_path)
+        os.chmod(binary_path, 0o750)
+        process = subprocess.Popen(['sleep', '30'], executable=binary_path)
+        try:
+            replacement = installer.split('        install -m 750 ', 1)[1].split('        cargo clean', 1)[0]
+            replacement = 'install -m 750 ' + replacement
+            replacement = replacement.replace('"$PROJECT_ROOT"/rust-syslog/target/release/simplenms-syslog', shutil.which('sleep')).replace('/opt/simple-nms/simplenms-syslog', binary_path)
+            result = subprocess.run(['bash', '-ec', replacement], capture_output=True, text=True)
+            check("Installer: replaces running collector and preserves executable permissions",
+                  result.returncode == 0 and process.poll() is None and os.stat(binary_path).st_mode & 0o777 == 0o750)
+        finally:
+            process.terminate()
+            process.wait()
+
     startup = installer.split('echo "Starting simple-nms..."', 1)[1].split('# Retrieve primary local IP address', 1)[0]
     result = subprocess.run(["bash", "-ec", 'systemctl() { echo "$*"; }\n' + startup], capture_output=True, text=True)
     check("Installer: enables and restarts service", result.returncode == 0 and result.stdout.splitlines() == ["daemon-reload", "enable simple-nms", "restart simple-nms"])
