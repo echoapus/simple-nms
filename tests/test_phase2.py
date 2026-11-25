@@ -333,7 +333,7 @@ def test_api_status():
     check("/health: DB writer configured", d.get("db_writer", {}).get("configured") is True)
     check("/health: DB writer total_written", d.get("db_writer", {}).get("total_written", 0) >= 7)
     check("/health: SSE client count", "sse_clients" in d)
-    check("/health: app version", d.get("version") == "26.11.16")
+    check("/health: app version", d.get("version") == "26.11.25")
 
     r = c.get("/api/status")
     check("/api/status -> 200", r.status_code == 200)
