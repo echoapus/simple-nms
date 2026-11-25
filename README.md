@@ -27,6 +27,45 @@ Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, a
 - **Runtime SNMP community updates** — Web UI config changes update the running SNMP trap listener without restarting the service
 - **Live Syslog source denylist** — validated IPv4/IPv6 addresses are dropped by both UDP and TLS collectors before parsing or storage; Settings changes apply without restarting
 
+## Screenshots
+
+![Live dashboard with event counts, filters, and event feed](screenshot/01_dashboard.png)
+
+<details>
+<summary>Syslog event details</summary>
+
+![Syslog event details](screenshot/02_syslog.png)
+
+</details>
+
+<details>
+<summary>SNMP Trap event details</summary>
+
+![SNMP Trap event details](screenshot/03_snmptrap.png)
+
+</details>
+
+<details>
+<summary>Webhook event details</summary>
+
+![Webhook event details](screenshot/04_webhook.png)
+
+</details>
+
+<details>
+<summary>Summary dashboard</summary>
+
+![Summary dashboard](screenshot/05_summary.png)
+
+</details>
+
+<details>
+<summary>Settings: service, Syslog denylist, TLS, and custom MIBs</summary>
+
+![Settings: service, Syslog denylist, TLS, and custom MIBs](screenshot/06_setting.png)
+
+</details>
+
 ## Quick Start
 
 ```bash

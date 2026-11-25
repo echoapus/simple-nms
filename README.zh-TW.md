@@ -19,6 +19,45 @@ Simple NMS 是一套輕量級的網路管理系統，收集、儲存並即時呈
 
 ---
 
+## 介面截圖
+
+![即時儀表板：事件計數、篩選與事件列表](screenshot/01_dashboard.png)
+
+<details>
+<summary>Syslog 事件詳情</summary>
+
+![Syslog 事件詳情](screenshot/02_syslog.png)
+
+</details>
+
+<details>
+<summary>SNMP Trap 事件詳情</summary>
+
+![SNMP Trap 事件詳情](screenshot/03_snmptrap.png)
+
+</details>
+
+<details>
+<summary>Webhook 事件詳情</summary>
+
+![Webhook 事件詳情](screenshot/04_webhook.png)
+
+</details>
+
+<details>
+<summary>統計摘要</summary>
+
+![統計摘要](screenshot/05_summary.png)
+
+</details>
+
+<details>
+<summary>設定：服務、Syslog 封鎖清單、TLS 與自訂 MIB</summary>
+
+![設定：服務、Syslog 封鎖清單、TLS 與自訂 MIB](screenshot/06_setting.png)
+
+</details>
+
 ## 系統架構
 
 ### 整體架構圖
