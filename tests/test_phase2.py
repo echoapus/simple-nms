@@ -11,7 +11,7 @@ import queue
 import time
 
 # Support running tests from any directory
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "simplenms"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "sieco"))
 
 from database import init_db, DBWriter
 from test_support import check, run_suite
@@ -406,7 +406,7 @@ def test_api_analytics():
 
 
 if __name__ == "__main__":
-    raise SystemExit(run_suite("Simple NMS -- Phase 2 Validation Suite", [
+    raise SystemExit(run_suite("Simple Event Collector -- Phase 2 Validation Suite", [
         test_api_kpi,
         test_api_events_basic,
         test_api_events_pagination,

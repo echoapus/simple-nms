@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simple NMS — main entry point.
+"""Simple Event Collector — main entry point.
 
 Reads config.json, initialises the database, starts the DB writer thread
 (with SSE broadcast callback), and launches all enabled collectors plus
@@ -29,7 +29,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)-7s] %(name)s: %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
-logger = logging.getLogger("simple-nms")
+logger = logging.getLogger("sieco")
 
 
 class TLSCollectorManager:
@@ -237,7 +237,7 @@ def main() -> None:
             write_queue,
             host=snmp_cfg.get("host", "0.0.0.0"),
             port=snmp_cfg.get("port", 162),
-            community=snmp_cfg.get("community", "simplenms"),
+            community=snmp_cfg.get("community", "sieco"),
             mib_dirs=list(dict.fromkeys([os.path.join(data_dir, "mibs")] + snmp_cfg.get("mib_dirs", ["/usr/share/snmp/mibs"]))),
             mib_modules=snmp_cfg.get("mib_modules"),
         )
@@ -298,7 +298,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    logger.info("Simple NMS is running.  Press Ctrl+C to stop.")
+    logger.info("Simple Event Collector is running.  Press Ctrl+C to stop.")
 
     try:
         while not shutdown:
@@ -309,7 +309,7 @@ def main() -> None:
     db_writer.join()
     if retention_worker:
         retention_worker.join(timeout=2)
-    logger.info("Simple NMS stopped.")
+    logger.info("Simple Event Collector stopped.")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 /* ================================================================
-   Simple NMS — Frontend Controller
+   Simple Event Collector — Frontend Controller
    ================================================================ */
 (() => {
   'use strict';
@@ -845,7 +845,7 @@
       const respConf = await fetch('/api/config');
       if (respConf.ok) {
         const dataConf = await respConf.json();
-        $('#inputCommunity').value = dataConf.community || 'simplenms';
+        $('#inputCommunity').value = dataConf.community || 'sieco';
         $('#inputWebhookPort').value = dataConf.webhook_port || 80;
         $('#inputSyslogDenyIps').value = (dataConf.syslog_deny_ips || []).join('\n');
         const tls = dataConf.syslog_tls || {};

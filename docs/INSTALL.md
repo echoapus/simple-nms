@@ -10,7 +10,7 @@
 
 ## Deployment Architecture
 
-Simple NMS uses the Python UDP Syslog collector or, by default, starts a local Rust
+Simple Event Collector uses the Python UDP Syslog collector or, by default, starts a local Rust
 collector for high-volume UDP Syslog. Choose which ports are reachable at the host
 firewall or reverse proxy; they are not separate deployable services.
 
@@ -22,7 +22,7 @@ flowchart LR
         ADMINS[Operators]
     end
 
-    subgraph PROCESS[Simple NMS service]
+    subgraph PROCESS[Simple Event Collector service]
         SYSLOG[Rust or Python Syslog collector]
         TLS[Syslog TLS collector]
         SNMP[SNMP Trap collector]
@@ -54,7 +54,7 @@ flowchart LR
 
 The HTTP surface has no built-in authentication and includes configuration,
 certificate upload, MIB management, and event deletion. Do not expose it directly
-to an untrusted network. For a reverse-proxy deployment, bind Simple NMS to
+to an untrusted network. For a reverse-proxy deployment, bind Simple Event Collector to
 `127.0.0.1:5000` and enforce authentication and TLS at the proxy.
 
 The only persistent runtime directory is `data/`: it contains the SQLite database,
@@ -69,24 +69,24 @@ whole directory rather than only `events.db` if you need a complete restore.
 sudo ./scripts/install.sh
 ```
 
-The installer asks for the UDP Syslog collector (`rust` or `python`), web portal TCP port (1–65535, default: existing setting or 80), and SNMP Trap community, creates the `simplenms` user, copies the app to `/opt/simple-nms`, creates a virtualenv, installs Python dependencies, installs the systemd unit, and starts the service. The web portal and webhook share the selected port. Rust is the default; when selected, the installer downloads Cargo/Rust if needed, compiles and deploys the collector, then removes its build artifacts and offers to remove only build packages it installed.
+The installer asks for the UDP Syslog collector (`rust` or `python`), web portal TCP port (1–65535, default: existing setting or 80), and SNMP Trap community, creates the `sieco` user, copies the app to `/opt/sieco`, creates a virtualenv, installs Python dependencies, installs the systemd unit, and starts the service. The web portal and webhook share the selected port. Rust is the default; when selected, the installer downloads Cargo/Rust if needed, compiles and deploys the collector, then removes its build artifacts and offers to remove only build packages it installed.
 
 On reinstall, the installer updates the active configuration (including a saved data-directory override) and restarts the service to apply the selected port. This briefly interrupts collection and web access.
 
 ### 2. Manual install
 
 ```bash
-sudo useradd -r -m -d /opt/simple-nms -s /usr/sbin/nologin simplenms
-sudo mkdir -p /opt/simple-nms/data /opt/simple-nms/scripts
-sudo cp -r src/simplenms/* requirements.txt config.example.json /opt/simple-nms/
+sudo useradd -r -m -d /opt/sieco -s /usr/sbin/nologin sieco
+sudo mkdir -p /opt/sieco/data /opt/sieco/scripts
+sudo cp -r src/sieco/* requirements.txt config.example.json /opt/sieco/
 # Only when syslog.collector is "rust"
 sudo cargo build --release --manifest-path rust-syslog/Cargo.toml
-sudo cp rust-syslog/target/release/simplenms-syslog /opt/simple-nms/
+sudo cp rust-syslog/target/release/sieco-syslog /opt/sieco/
 sudo cargo clean --manifest-path rust-syslog/Cargo.toml
-sudo python3 -m venv /opt/simple-nms/venv
-sudo /opt/simple-nms/venv/bin/pip install -r /opt/simple-nms/requirements.txt
-sudo chown -R root:simplenms /opt/simple-nms
-sudo chown -R simplenms:simplenms /opt/simple-nms/data
+sudo python3 -m venv /opt/sieco/venv
+sudo /opt/sieco/venv/bin/pip install -r /opt/sieco/requirements.txt
+sudo chown -R root:sieco /opt/sieco
+sudo chown -R sieco:sieco /opt/sieco/data
 ```
 
 Dependencies installed:
@@ -100,11 +100,11 @@ Standard library (no install needed): `sqlite3`, `socket`, `queue`, `threading`,
 
 ### 3. Configure
 
-Copy the example config and edit `/opt/simple-nms/config.json`:
+Copy the example config and edit `/opt/sieco/config.json`:
 
 ```bash
-sudo cp /opt/simple-nms/config.example.json /opt/simple-nms/config.json
-sudo nano /opt/simple-nms/config.json
+sudo cp /opt/sieco/config.example.json /opt/sieco/config.json
+sudo nano /opt/sieco/config.json
 ```
 
 ```json
@@ -135,8 +135,8 @@ sudo nano /opt/simple-nms/config.json
         "enabled": true,
         "host": "0.0.0.0",
         "port": 162,
-        "community": "simplenms",
-        "mib_dirs": ["/opt/simple-nms/data/mibs", "/usr/share/snmp/mibs"]
+        "community": "sieco",
+        "mib_dirs": ["/opt/sieco/data/mibs", "/usr/share/snmp/mibs"]
     },
     "webhook": {
         "enabled": true,
@@ -148,13 +148,13 @@ sudo nano /opt/simple-nms/config.json
 
 ### Syslog TLS (RFC 5425)
 
-Use the Web UI **Settings → Syslog TLS** card to upload the server certificate and private key, then choose **Apply TLS changes**. The listener starts or reloads immediately on TCP 6514 and disconnects active TLS clients. For mTLS, upload a CA certificate and enable **Require client certificate** before applying. The uploaded files are stored in `/opt/simple-nms/data/tls/`; keep this directory readable only by the service user.
+Use the Web UI **Settings → Syslog TLS** card to upload the server certificate and private key, then choose **Apply TLS changes**. The listener starts or reloads immediately on TCP 6514 and disconnects active TLS clients. For mTLS, upload a CA certificate and enable **Require client certificate** before applying. The uploaded files are stored in `/opt/sieco/data/tls/`; keep this directory readable only by the service user.
 
 The **Service** card saves SNMP community and Web/Webhook settings separately. Changing the Web/Webhook port requires a service restart; TLS changes do not.
 
 ### UDP Syslog collector
 
-`syslog.collector` selects the UDP listener: `rust` is the default for high-rate traffic and runs as a local child process; `python` uses the in-process collector and does not require Cargo. Select it during `scripts/install.sh`, or update the setting and restart `simple-nms`. Syslog TLS remains Python-based.
+`syslog.collector` selects the UDP listener: `rust` is the default for high-rate traffic and runs as a local child process; `python` uses the in-process collector and does not require Cargo. Select it during `scripts/install.sh`, or update the setting and restart `sieco`. Syslog TLS remains Python-based.
 
 ### Syslog source denylist
 
@@ -172,7 +172,7 @@ The same setting is stored in `syslog.deny_ips`:
 }
 ```
 
-If Simple NMS is behind HAProxy on the same host, bind the web server to loopback and use a non-public backend port:
+If Simple Event Collector is behind HAProxy on the same host, bind the web server to loopback and use a non-public backend port:
 
 ```json
     "webhook": {
@@ -185,16 +185,16 @@ If Simple NMS is behind HAProxy on the same host, bind the web server to loopbac
 ### 4. Create data directory
 
 ```bash
-sudo -u simplenms mkdir -p /opt/simple-nms/data
+sudo -u sieco mkdir -p /opt/sieco/data
 ```
 
 ### 5. Install systemd service
 
 ```bash
-sudo cp deploy/simple-nms.service /etc/systemd/system/
+sudo cp deploy/sieco.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable simple-nms
-sudo systemctl start simple-nms
+sudo systemctl enable sieco
+sudo systemctl start sieco
 ```
 
 The systemd unit uses `AmbientCapabilities=CAP_NET_BIND_SERVICE` so the service can bind to ports 80, 162, and 514 without running as root.
@@ -203,10 +203,10 @@ The systemd unit uses `AmbientCapabilities=CAP_NET_BIND_SERVICE` so the service 
 
 ```bash
 # Check service status
-sudo systemctl status simple-nms
+sudo systemctl status sieco
 
 # Check logs
-sudo journalctl -u simple-nms -f
+sudo journalctl -u sieco -f
 
 # Test web UI
 curl -s http://localhost/health
@@ -230,7 +230,7 @@ curl -X POST http://localhost/api/events/cleanup \
 For unattended cleanup, call the API from cron:
 
 ```bash
-sudo crontab -u simplenms -e
+sudo crontab -u sieco -e
 ```
 
 Add:
@@ -259,22 +259,22 @@ sudo ufw allow from 10.0.0.0/8 to any port 162 proto udp
 
 ### 9. Local HAProxy reverse proxy (optional)
 
-When HAProxy runs on the same host, expose HAProxy on port 80/443 and forward to the loopback Simple NMS backend:
+When HAProxy runs on the same host, expose HAProxy on port 80/443 and forward to the loopback Simple Event Collector backend:
 
 ```haproxy
 frontend http_in
     bind *:80
     mode http
-    default_backend simple_nms
+    default_backend sieco
 
-backend simple_nms
+backend sieco
     mode http
     option forwardfor
     http-request set-header X-Forwarded-Proto http
-    server simple_nms_1 127.0.0.1:5000 check
+    server sieco_1 127.0.0.1:5000 check
 ```
 
-Simple NMS trusts `X-Forwarded-For` and `X-Real-IP` only when the immediate peer is loopback. This supports local HAProxy while preventing direct clients from spoofing webhook `src_ip`.
+Simple Event Collector trusts `X-Forwarded-For` and `X-Real-IP` only when the immediate peer is loopback. This supports local HAProxy while preventing direct clients from spoofing webhook `src_ip`.
 
 ---
 
@@ -285,7 +285,7 @@ For testing on non-privileged ports without root:
 ```bash
 # Copy config.example.json to config.json and set ports to 8080 (webhook), 5514 (syslog), 1162 (snmptrap)
 cargo build --release --manifest-path rust-syslog/Cargo.toml
-cd src/simplenms
+cd src/sieco
 python3 main.py ../../config.json
 ```
 

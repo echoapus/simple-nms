@@ -11,7 +11,7 @@ import queue
 import time
 
 # Support running tests from any directory
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "simplenms"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "sieco"))
 
 from database import init_db, DBWriter
 from test_support import check, run_suite
@@ -60,7 +60,7 @@ def test_static_serving():
     check("GET / returns 200", r.status_code == 200)
     html = r.data.decode("utf-8")
     check("HTML contains <!DOCTYPE html>", "<!DOCTYPE html>" in html)
-    check("Title is Simple NMS", "<title>Simple NMS</title>" in html)
+    check("Title is Simple Event Collector", "<title>Simple Event Collector</title>" in html)
     w.stop(); w.join(timeout=2)
 
 
@@ -263,7 +263,7 @@ def test_config_and_mibs():
 
 
 if __name__ == "__main__":
-    raise SystemExit(run_suite("Simple NMS -- Phase 3 Validation Suite", [
+    raise SystemExit(run_suite("Simple Event Collector -- Phase 3 Validation Suite", [
         test_static_serving,
         test_static_contract,
         test_api_cors,

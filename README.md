@@ -1,6 +1,6 @@
-# Simple NMS
+# Simple Event Collector
 
-Lightweight Network Management System that collects **Syslog**, **SNMP Trap**, and **Webhook** events into a single SQLite database, with a real-time web dashboard.
+Lightweight event collector that gathers **Syslog**, **SNMP Trap**, and **Webhook** events into a single SQLite database, with a real-time web dashboard.
 
 ## Features
 
@@ -75,7 +75,7 @@ pip install -r requirements.txt
 cargo build --release --manifest-path rust-syslog/Cargo.toml
 
 # Start on privileged ports (uses config.json from repo root)
-cd src/simplenms
+cd src/sieco
 sudo python3 main.py ../../config.json
 
 # Or with a custom config
@@ -94,20 +94,20 @@ The installer selects the UDP Syslog collector (`rust` or `python`), asks for th
 
 ## Reverse Proxy / HAProxy
 
-Simple NMS can run directly or behind a local reverse proxy such as HAProxy.
-When HAProxy runs on the same host, configure it to forward requests to the Simple NMS web port and add `X-Forwarded-For`:
+Simple Event Collector can run directly or behind a local reverse proxy such as HAProxy.
+When HAProxy runs on the same host, configure it to forward requests to the Simple Event Collector web port and add `X-Forwarded-For`:
 
 ```haproxy
 frontend http_in
     bind *:80
     mode http
-    default_backend simple_nms
+    default_backend sieco
 
-backend simple_nms
+backend sieco
     mode http
     option forwardfor
     http-request set-header X-Forwarded-Proto http
-    server simple_nms_1 127.0.0.1:5000 check
+    server sieco_1 127.0.0.1:5000 check
 ```
 
 With this setup, set `webhook.host` to `127.0.0.1` and `webhook.port` to `5000`.
@@ -116,7 +116,7 @@ Forwarded client IP headers are trusted only when the immediate peer is loopback
 
 ## Architecture
 
-Simple NMS uses the Python collector or, by default, a local Rust process for
+Simple Event Collector uses the Python collector or, by default, a local Rust process for
 high-volume UDP Syslog. Collection, storage, queries, and live delivery remain separate runtime paths:
 
 ```mermaid
@@ -128,7 +128,7 @@ flowchart LR
         HOOK[External systems<br/>POST /webhook]
     end
 
-    subgraph NMS[Simple NMS service]
+    subgraph NMS[Simple Event Collector service]
         SC[Rust or Python UDP Syslog collector<br/>parse + normalize]
         TC[Python TLS Syslog collector<br/>parse + normalize]
         NC[SNMP collector<br/>resolve MIB names + normalize]

@@ -30,8 +30,8 @@
         "enabled": true,
         "host": "0.0.0.0",
         "port": 162,
-        "community": "simplenms",
-        "mib_dirs": ["/opt/simple-nms/data/mibs", "/usr/share/snmp/mibs"]
+        "community": "sieco",
+        "mib_dirs": ["/opt/sieco/data/mibs", "/usr/share/snmp/mibs"]
     },
     "webhook": {
         "enabled": true,

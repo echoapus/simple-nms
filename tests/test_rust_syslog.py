@@ -9,14 +9,14 @@ import sys
 import tempfile
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "simplenms"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "sieco"))
 
 from collectors.rust_syslog import RustSyslogCollector
 from test_support import check, run_suite
 
 
 PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BINARY = os.path.join(PROJECT, "rust-syslog", "target", "release", "simplenms-syslog")
+BINARY = os.path.join(PROJECT, "rust-syslog", "target", "release", "sieco-syslog")
 
 
 def test_udp_handoff():
@@ -67,6 +67,6 @@ def test_start_fails_when_udp_port_is_busy():
 if __name__ == "__main__":
     subprocess.run(["cargo", "build", "--release", "--manifest-path", os.path.join(PROJECT, "rust-syslog", "Cargo.toml")], check=True)
     try:
-        raise SystemExit(run_suite("Simple NMS -- Rust Syslog Collector", [test_udp_handoff, test_start_fails_when_udp_port_is_busy]))
+        raise SystemExit(run_suite("Simple Event Collector -- Rust Syslog Collector", [test_udp_handoff, test_start_fails_when_udp_port_is_busy]))
     finally:
         subprocess.run(["cargo", "clean", "--manifest-path", os.path.join(PROJECT, "rust-syslog", "Cargo.toml")], check=False)

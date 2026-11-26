@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const appPath = path.join(__dirname, '..', 'src', 'simplenms', 'static', 'app.js');
+const appPath = path.join(__dirname, '..', 'src', 'sieco', 'static', 'app.js');
 const source = fs.readFileSync(appPath, 'utf8');
 const close = source.lastIndexOf('})();');
 assert.notEqual(close, -1, 'app.js closing wrapper not found');

@@ -500,7 +500,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
             if not os.path.exists(path):
                 return jsonify({"error": "Config file not found"}), 404
             return jsonify({
-                "community": cfg.get("snmptrap", {}).get("community", "simplenms"),
+                "community": cfg.get("snmptrap", {}).get("community", "sieco"),
                 "webhook_port": cfg.get("webhook", {}).get("port", 80),
                 "syslog_tls": tls_config_response(cfg),
                 "syslog_deny_ips": cfg.get("syslog", {}).get("deny_ips", []),
@@ -623,7 +623,7 @@ def create_app(db_path: str, write_queue: "queue.Queue[dict]", db_writer=None, s
                 
         return jsonify({
             "status": "ok",
-            "community": cfg.get("snmptrap", {}).get("community", "simplenms"),
+            "community": cfg.get("snmptrap", {}).get("community", "sieco"),
             "webhook_port": cfg.get("webhook", {}).get("port", 80),
             "port_changed": port_changed,
             "syslog_tls": tls_config_response(cfg),

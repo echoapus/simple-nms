@@ -44,7 +44,7 @@ class MibResolver:
         self._mib_dirs = list(mib_dirs or [])
         self._mib_modules = mib_modules
         self._load_errors = {}
-        self._compiled = tempfile.TemporaryDirectory(prefix="simplenms-mibs-")
+        self._compiled = tempfile.TemporaryDirectory(prefix="sieco-mibs-")
 
         try:
             mib_builder = snmp_engine.get_mib_builder() if snmp_engine else builder.MibBuilder()
@@ -156,7 +156,7 @@ class SNMPTrapCollector(threading.Thread):
 
     def __init__(self, write_queue: "queue.Queue[dict]",
                  host: str = "0.0.0.0", port: int = 162,
-                 community: str = "simplenms",
+                 community: str = "sieco",
                  mib_dirs: list = None, mib_modules: list = None):
         super().__init__(daemon=True, name="snmptrap-collector")
         self.q = write_queue

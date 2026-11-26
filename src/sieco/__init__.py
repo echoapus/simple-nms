@@ -1,4 +1,4 @@
-"""Simple NMS core package."""
+"""Simple Event Collector core package."""
 
 try:
     from .version import __version__

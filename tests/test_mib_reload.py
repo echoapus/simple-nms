@@ -5,7 +5,7 @@ import unittest
 import threading
 from unittest.mock import patch
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "simplenms"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "sieco"))
 from collectors.snmp_listener import MibResolver, _PYSNMP_OK
 
 

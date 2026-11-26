@@ -1,4 +1,4 @@
-"""Process-local runtime metrics for Simple NMS."""
+"""Process-local runtime metrics for Simple Event Collector."""
 
 import threading
 

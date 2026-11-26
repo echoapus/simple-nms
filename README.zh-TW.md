@@ -1,10 +1,10 @@
-# Simple NMS — 簡易網路管理系統
+# Simple Event Collector — 簡易事件收集器
 
 繁體中文專案說明。English overview: [README.md](README.md).
 
 ## 專案概述
 
-Simple NMS 是一套輕量級的網路管理系統，收集、儲存並即時呈現網路事件。服務以 Python 處理 API、SNMP、Webhook 與資料庫；UDP Syslog 可選擇 Python collector 或預設的 Rust collector。不需要外部 Web Server、Message Queue 或資料庫伺服器。
+Simple Event Collector 是一套輕量級的網路事件收集器，收集、儲存並即時呈現網路事件。服務以 Python 處理 API、SNMP、Webhook 與資料庫；UDP Syslog 可選擇 Python collector 或預設的 Rust collector。不需要外部 Web Server、Message Queue 或資料庫伺服器。
 
 適用場景：中小型網路環境的 NOC（網路營運中心）值班監控、實驗室環境測試、或作為大型 NMS 的輕量補充。
 
@@ -62,7 +62,7 @@ Simple NMS 是一套輕量級的網路管理系統，收集、儲存並即時呈
 
 ### 整體架構圖
 
-Simple NMS 以 Python service 處理收集、寫入、查詢與即時推送；選擇 Rust 時，UDP Syslog 會由本機 Rust process 接收並送入相同的寫入佇列：
+Simple Event Collector 以 Python service 處理收集、寫入、查詢與即時推送；選擇 Rust 時，UDP Syslog 會由本機 Rust process 接收並送入相同的寫入佇列：
 
 ```mermaid
 flowchart LR
@@ -73,7 +73,7 @@ flowchart LR
         HOOK[外部系統<br/>POST /webhook]
     end
 
-    subgraph NMS[Simple NMS service]
+    subgraph NMS[Simple Event Collector service]
         SC[Rust 或 Python UDP Syslog<br/>解析與標準化]
         TC[Python TLS Syslog<br/>解析與標準化]
         NC[SNMP Collector<br/>MIB 解析與標準化]
@@ -120,7 +120,7 @@ Python service 透過多執行緒處理並行任務；選擇 Rust 時另有本�
 | 執行緒 | 名稱 | 職責 |
 |--------|------|------|
 | Main Thread | `main` | 載入設定、啟動所有元件、處理 SIGINT/SIGTERM 信號 |
-| UDP Syslog | `simplenms-syslog` 或 `syslog-collector` | 依 `syslog.collector` 使用 Rust 或 Python 接收 UDP 514，解析 RFC 3164/5424 並推入 Write Queue |
+| UDP Syslog | `sieco-syslog` 或 `syslog-collector` | 依 `syslog.collector` 使用 Rust 或 Python 接收 UDP 514，解析 RFC 3164/5424 並推入 Write Queue |
 | Thread 2 | `snmptrap-collector` | 監聽 UDP 162，透過 pysnmp 接收 Trap，MIB 解析後推入 Write Queue |
 | Thread 3 | `web-server` | Werkzeug HTTP Server，處理 Web UI、REST API、Webhook、SSE |
 | Thread 4 | `db-writer` | 從 Write Queue 取出事件，批次 INSERT 到 SQLite，成功後觸發 SSE 廣播 |
@@ -171,15 +171,15 @@ HTTP listener 在同一個 host/port 提供 UI、REST、Settings、SSE 與 Webho
 ## 檔案結構
 
 ```
-simple-nms/
+sieco/
 ├── config.example.json          # 外部化設定範例 (請複製為 config.json)（所有 port、MIB 路徑）
 ├── requirements.txt             # Python 依賴
 ├── scripts/
-│   ├── install.sh               # 安裝到 /opt/simple-nms 並建立 systemd 服務
+│   ├── install.sh               # 安裝到 /opt/sieco 並建立 systemd 服務
 │   ├── uninstall.sh             # 移除 systemd 服務與安裝目錄
 │   └── check_community_update.py # 驗證 Web UI community 熱更新
 │
-├── src/simplenms/
+├── src/sieco/
 │   ├── main.py                  # 入口：讀取設定、啟動所有元件
 │   ├── database.py              # SQLite schema、DB Writer 執行緒
 │   ├── web_app.py               # Flask app（Webhook + REST API + SSE + 靜態頁面）
@@ -193,7 +193,7 @@ simple-nms/
 │       └── index.html           # 完整 Web UI（HTML + CSS + JS，單一檔案）
 │
 ├── deploy/
-│   └── simple-nms.service       # systemd 服務單元檔
+│   └── sieco.service       # systemd 服務單元檔
 ├── rust-syslog/                 # Rust UDP Syslog collector
 │
 ├── README.md                    # English project overview
@@ -280,8 +280,8 @@ sudo ./scripts/install.sh
         "enabled": true,
         "host": "0.0.0.0",
         "port": 162,
-        "community": "simplenms",
-        "mib_dirs": ["/opt/simple-nms/data/mibs", "/usr/share/snmp/mibs"]
+        "community": "sieco",
+        "mib_dirs": ["/opt/sieco/data/mibs", "/usr/share/snmp/mibs"]
     },
     "webhook": {
         "enabled": true,
@@ -306,7 +306,7 @@ sudo ./scripts/install.sh
 
 ### Syslog TLS（RFC 5425）
 
-在 Web UI 的 **Settings → Syslog TLS** 上傳伺服器憑證與私鑰，啟用 TLS Syslog 後按 **Apply TLS changes**。系統會立即在 TCP 6514 啟動或重載 listener，既有 TLS Syslog 連線會中斷。若需要 mTLS，請先上傳 CA 憑證並啟用 **Require client certificate**。上傳檔案儲存在 `/opt/simple-nms/data/tls/`，私鑰不會由 API 回傳。
+在 Web UI 的 **Settings → Syslog TLS** 上傳伺服器憑證與私鑰，啟用 TLS Syslog 後按 **Apply TLS changes**。系統會立即在 TCP 6514 啟動或重載 listener，既有 TLS Syslog 連線會中斷。若需要 mTLS，請先上傳 CA 憑證並啟用 **Require client certificate**。上傳檔案儲存在 `/opt/sieco/data/tls/`，私鑰不會由 API 回傳。
 
 Settings 分成四個獨立區塊：**Service** 儲存 SNMP community 與 Web/Webhook port（修改 Web port 仍需重啟服務）；**Syslog source denylist** 即時更新 UDP/TLS 封鎖清單；**Syslog TLS** 只在 Apply 時重載 TLS listener；**Custom MIBs** 可獨立上傳與刪除，不會影響 TLS。
 
@@ -314,7 +314,7 @@ Settings 分成四個獨立區塊：**Service** 儲存 SNMP community 與 Web/We
 
 在 **Settings → Syslog source denylist** 每行輸入一個完整 IPv4 或 IPv6 位址並儲存。系統會先驗證位址，然後立即套用至 UDP 514 與 TLS 6514 listener，不需重啟；符合的來源會在解析及寫入資料庫前被丟棄。清空欄位並儲存即可取消所有封鎖。
 
-如果 Simple NMS 放在同一台主機的 HAProxy 後面，建議讓 Web Server 只監聽 loopback：
+如果 Simple Event Collector 放在同一台主機的 HAProxy 後面，建議讓 Web Server 只監聽 loopback：
 
 ```json
 "webhook": {
@@ -330,21 +330,21 @@ HAProxy 需送出 forwarding header：
 frontend http_in
     bind *:80
     mode http
-    default_backend simple_nms
+    default_backend sieco
 
-backend simple_nms
+backend sieco
     mode http
     option forwardfor
     http-request set-header X-Forwarded-Proto http
-    server simple_nms_1 127.0.0.1:5000 check
+    server sieco_1 127.0.0.1:5000 check
 ```
 
-Webhook 的 `src_ip` 在本機 HAProxy 轉送時會使用 `X-Forwarded-For` 的第一個值；若沒有 proxy，則使用直接連線的來源 IP。Simple NMS 只在 immediate peer 是 loopback 時信任 `X-Forwarded-For` / `X-Real-IP`，避免外部直接連線偽造來源 IP。
+Webhook 的 `src_ip` 在本機 HAProxy 轉送時會使用 `X-Forwarded-For` 的第一個值；若沒有 proxy，則使用直接連線的來源 IP。Simple Event Collector 只在 immediate peer 是 loopback 時信任 `X-Forwarded-For` / `X-Real-IP`，避免外部直接連線偽造來源 IP。
 
 ### 第五步：手動測試啟動
 
 ```bash
-cd src/simplenms
+cd src/sieco
 sudo python3 main.py ../../config.json
 ```
 
@@ -354,20 +354,20 @@ sudo python3 main.py ../../config.json
 
 ```bash
 # 建立專用使用者
-sudo useradd -r -m -d /opt/simple-nms -s /usr/sbin/nologin simplenms
+sudo useradd -r -m -d /opt/sieco -s /usr/sbin/nologin sieco
 
 # 部署檔案
-sudo cp -r ~/simple-nms/* /opt/simple-nms/
-sudo chown -R simplenms:simplenms /opt/simple-nms
+sudo cp -r ~/simple-nms/* /opt/sieco/
+sudo chown -R sieco:sieco /opt/sieco
 
 # 安裝服務
-sudo cp /opt/simple-nms/deploy/simple-nms.service /etc/systemd/system/
+sudo cp /opt/sieco/deploy/sieco.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now simple-nms
+sudo systemctl enable --now sieco
 
 # 確認狀態
-sudo systemctl status simple-nms
-sudo journalctl -u simple-nms -f
+sudo systemctl status sieco
+sudo journalctl -u sieco -f
 ```
 
 systemd 服務使用 `AmbientCapabilities=CAP_NET_BIND_SERVICE`，不需要 root 權限就能綁定 port 80/514/162。
@@ -398,13 +398,13 @@ s.close()
 
 ```bash
 # linkDown trap
-snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
+snmptrap -v2c -c sieco 127.0.0.1:162 '' \
   1.3.6.1.6.3.1.1.5.3 \
   1.3.6.1.2.1.2.2.1.1 i 3 \
   1.3.6.1.2.1.2.2.1.2 s "GigabitEthernet0/1"
 
 # 使用 MIB 名稱（需要 snmp-mibs-downloader）
-snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
+snmptrap -v2c -c sieco 127.0.0.1:162 '' \
   IF-MIB::linkDown \
   IF-MIB::ifIndex i 3 \
   IF-MIB::ifDescr s "GigabitEthernet0/1"
@@ -505,7 +505,7 @@ curl "http://localhost/health"
 
 ### 運作原理
 
-Simple NMS 使用 pysnmp 的內建預編譯 MIB 進行 OID 的解析，後續收到 SNMP Trap 時，透過 `MibResolver` 將數字 OID 翻譯為可讀名稱。
+Simple Event Collector 使用 pysnmp 的內建預編譯 MIB 進行 OID 的解析，後續收到 SNMP Trap 時，透過 `MibResolver` 將數字 OID 翻譯為可讀名稱。
 
 解析結果會被快取（cache），同一個 OID 不會重複查詢。無法解析的 OID 會保留原始數字格式，不影響系統運作。
 
@@ -514,14 +514,14 @@ Simple NMS 使用 pysnmp 的內建預編譯 MIB 進行 OID 的解析，後續收
 在 `config.json` 的 `snmptrap` 區塊設定：
 
 ```json
-"mib_dirs": ["/opt/simple-nms/data/mibs", "/usr/share/snmp/mibs"]
+"mib_dirs": ["/opt/sieco/data/mibs", "/usr/share/snmp/mibs"]
 ```
 
 - `mib_dirs`：ASN.1 MIB 原始檔所在目錄，可指定多個
 
 ### 加入自訂 MIB
 
-把廠商提供的 MIB 檔案放到 `mib_dirs` 指定的目錄即可（例如 `/opt/simple-nms/data/mibs`），系統啟動時會自動偵測並載入。
+把廠商提供的 MIB 檔案放到 `mib_dirs` 指定的目錄即可（例如 `/opt/sieco/data/mibs`），系統啟動時會自動偵測並載入。
 
 也可以從 Web UI 上傳 MIB，成功後會立即嘗試載入到目前執行中的 SNMP resolver。
 
@@ -591,7 +591,7 @@ TLS 傳輸使用 TCP 6514，優先採用 RFC 6587 octet-counting framing；為�
 Cisco IOS：
 
 ```
-snmp-server host 10.0.0.100 version 2c simplenms
+snmp-server host 10.0.0.100 version 2c sieco
 snmp-server enable traps
 ```
 
@@ -606,7 +606,7 @@ set snmp trap-group nms-traps version v2
 
 任何支援 outgoing webhook 的系統都可以 POST JSON 到 `http://your-server/webhook`，例如 Grafana Alertmanager、Zabbix、自訂腳本等。
 
-若透過本機 HAProxy 對外服務，請在 backend 啟用 `option forwardfor`，Simple NMS 會在安全條件下記錄原始 client IP。
+若透過本機 HAProxy 對外服務，請在 backend 啟用 `option forwardfor`，Simple Event Collector 會在安全條件下記錄原始 client IP。
 
 ---
 

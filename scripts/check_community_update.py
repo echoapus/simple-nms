@@ -13,7 +13,7 @@ import urllib.request
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-url", default="http://127.0.0.1", help="Simple NMS WebUI base URL")
+    parser.add_argument("--base-url", default="http://127.0.0.1", help="Simple Event Collector WebUI base URL")
     parser.add_argument("--trap-host", default="127.0.0.1", help="SNMP trap receiver host")
     parser.add_argument("--trap-port", type=int, default=162, help="SNMP trap receiver UDP port")
     parser.add_argument("--community", default=f"check-{int(time.time())}", help="temporary community to set")
@@ -38,7 +38,7 @@ def main():
             return json.loads(resp.read().decode("utf-8"))
 
     old_community = api_json("/api/config").get("community")
-    marker = f"simplenms-community-check-{int(time.time())}"
+    marker = f"sieco-community-check-{int(time.time())}"
 
     try:
         api_json("/api/config", {"community": args.community})

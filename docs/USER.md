@@ -1,6 +1,6 @@
 # User Guide
 
-## How Events Move Through Simple NMS
+## How Events Move Through Simple Event Collector
 
 All inputs use the same storage pipeline, so an event is visible in the live UI
 only after SQLite accepts it:
@@ -50,7 +50,7 @@ change persistent state.
 
 ### Syslog
 
-UDP Syslog uses the Rust collector by default. Set `syslog.collector` to `python` in `config.json` when a single Python process is preferred, then restart `simple-nms`. Syslog TLS always uses the Python TLS collector.
+UDP Syslog uses the Rust collector by default. Set `syslog.collector` to `python` in `config.json` when a single Python process is preferred, then restart `sieco`. Syslog TLS always uses the Python TLS collector.
 
 Send test syslog messages using `logger` (installed by default on Linux):
 
@@ -121,21 +121,21 @@ Open **Settings → Syslog source denylist**, enter one complete IPv4 or IPv6 ad
 
 Using `snmptrap` (install: `sudo apt install snmp` on Debian/Ubuntu or `sudo dnf install net-snmp-utils` on RHEL/CentOS):
 
-Use the community selected during installation in place of `simplenms` in these examples.
+Use the community selected during installation in place of `sieco` in these examples.
 
 ```bash
 # SNMPv2c linkDown trap
-snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
+snmptrap -v2c -c sieco 127.0.0.1:162 '' \
     1.3.6.1.6.3.1.1.5.3 \
     1.3.6.1.2.1.2.2.1.1 i 3
 
 # SNMPv2c custom trap
-snmptrap -v2c -c simplenms 127.0.0.1:162 '' \
+snmptrap -v2c -c sieco 127.0.0.1:162 '' \
     1.3.6.1.4.1.99999 \
     1.3.6.1.4.1.99999.1 s "CPU utilization 95%"
 ```
 
-To verify that changing the SNMP community in the Web UI takes effect without restarting Simple NMS:
+To verify that changing the SNMP community in the Web UI takes effect without restarting Simple Event Collector:
 
 ```bash
 ./scripts/check_community_update.py --base-url http://127.0.0.1 --trap-host 127.0.0.1 --trap-port 162 --restore
@@ -329,7 +329,7 @@ curl -X POST http://localhost/webhook \
 
 Response: `202 Accepted` with `{"status": "ok"}`
 
-When Simple NMS is behind a local reverse proxy such as HAProxy, webhook `src_ip` is taken from the first value in `X-Forwarded-For`, falling back to `X-Real-IP` and then the socket peer IP. Forwarded IP headers are trusted only when the immediate peer is loopback. Direct clients can still post to `/webhook`, but their forged forwarding headers are ignored.
+When Simple Event Collector is behind a local reverse proxy such as HAProxy, webhook `src_ip` is taken from the first value in `X-Forwarded-For`, falling back to `X-Real-IP` and then the socket peer IP. Forwarded IP headers are trusted only when the immediate peer is loopback. Direct clients can still post to `/webhook`, but their forged forwarding headers are ignored.
 
 ### GET /health
 
@@ -414,7 +414,7 @@ set system syslog host 10.0.0.100 port 514
 
 **Cisco IOS:**
 ```
-snmp-server host 10.0.0.100 version 2c simplenms
+snmp-server host 10.0.0.100 version 2c sieco
 snmp-server enable traps
 ```
 
@@ -431,9 +431,9 @@ Any system that supports outgoing webhooks can POST JSON to `http://your-server/
 For local HAProxy deployments, enable forwarding headers:
 
 ```haproxy
-backend simple_nms
+backend sieco
     mode http
     option forwardfor
     http-request set-header X-Forwarded-Proto http
-    server simple_nms_1 127.0.0.1:5000 check
+    server sieco_1 127.0.0.1:5000 check
 ```

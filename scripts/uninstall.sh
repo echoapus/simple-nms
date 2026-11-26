@@ -6,20 +6,20 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-echo "Stopping simple-nms..."
-systemctl disable --now simple-nms 2>/dev/null || true
-rm -f /etc/systemd/system/simple-nms.service
+echo "Stopping sieco..."
+systemctl disable --now sieco 2>/dev/null || true
+rm -f /etc/systemd/system/sieco.service
 systemctl daemon-reload
 
-# Terminate any remaining processes running as simplenms to prevent userdel from failing
-echo "Terminating any orphaned processes running as simplenms..."
-pkill -u simplenms 2>/dev/null || true
+# Terminate any remaining processes running as sieco to prevent userdel from failing
+echo "Terminating any orphaned processes running as sieco..."
+pkill -u sieco 2>/dev/null || true
 sleep 0.5
-pkill -9 -u simplenms 2>/dev/null || true
+pkill -9 -u sieco 2>/dev/null || true
 
-userdel simplenms 2>/dev/null || true
-rm -rf /opt/simple-nms
+userdel sieco 2>/dev/null || true
+rm -rf /opt/sieco
 
 echo "=================================================================="
-echo "Simple NMS has been successfully removed!"
+echo "Simple Event Collector has been successfully removed!"
 echo "=================================================================="

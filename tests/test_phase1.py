@@ -14,7 +14,7 @@ import tempfile
 import time
 
 # Support running tests from any directory
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "simplenms"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "sieco"))
 
 from database import init_db, DBWriter
 from collectors.syslog_listener import _parse_syslog
@@ -138,7 +138,7 @@ def test_snmp_module():
     check("pysnmp importable", _PYSNMP_OK)
     tc = SNMPTrapCollector(queue.Queue(), host="127.0.0.1", port=1162)
     check("SNMPTrapCollector instantiated", tc is not None)
-    check("default community=simplenms", tc.community == "simplenms")
+    check("default community=sieco", tc.community == "sieco")
 
 
 def test_snmp_mib_partial_resolution():
@@ -304,7 +304,7 @@ def test_end_to_end():
 
 
 if __name__ == "__main__":
-    raise SystemExit(run_suite("Simple NMS -- Phase 1 Validation Suite", [
+    raise SystemExit(run_suite("Simple Event Collector -- Phase 1 Validation Suite", [
         test_syslog_parser,
         test_webhook,
         test_snmp_module,

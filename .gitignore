@@ -39,3 +39,4 @@ Thumbs.db
 *.swp
 *.swo
 config.json
+rust-syslog/target/

@@ -60,37 +60,57 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "Configuring simplenms user..."
-if ! id -u simplenms >/dev/null 2>&1; then
-    useradd -r -m -d /opt/simple-nms -s /usr/sbin/nologin simplenms
+# Upgrade from the old "simple-nms" name: move the install, user and service to "sieco".
+if [ -d /opt/simple-nms ] && [ ! -e /opt/sieco ]; then
+    echo "Migrating existing simple-nms install to sieco..."
+    systemctl disable --now simple-nms 2>/dev/null || true
+    rm -f /etc/systemd/system/simple-nms.service
+    mv /opt/simple-nms /opt/sieco
+    rm -f /opt/sieco/simplenms-syslog
+    # Skip a rename when the new name is already taken; set -e would abort mid-migration.
+    if id -u simplenms >/dev/null 2>&1 && ! id -u sieco >/dev/null 2>&1; then
+        usermod -l sieco -d /opt/sieco simplenms
+        getent group sieco >/dev/null || groupmod -n sieco simplenms
+    fi
+    # Old config files and the old venv hold absolute /opt/simple-nms paths.
+    rm -rf /opt/sieco/venv
+    find /opt/sieco -name config.json -exec sed -i 's#/opt/simple-nms#/opt/sieco#g' {} +
+elif [ -d /opt/simple-nms ]; then
+    # Both folders exist: stop the old service so it releases the ports; leave its files alone.
+    systemctl disable --now simple-nms 2>/dev/null || true
 fi
 
-MIB_DIR="/opt/simple-nms/data/mibs"
-TLS_DIR="/opt/simple-nms/data/tls"
+echo "Configuring sieco user..."
+if ! id -u sieco >/dev/null 2>&1; then
+    useradd -r -m -d /opt/sieco -s /usr/sbin/nologin sieco
+fi
+
+MIB_DIR="/opt/sieco/data/mibs"
+TLS_DIR="/opt/sieco/data/tls"
 mkdir -p "$MIB_DIR" "$TLS_DIR"
 echo "Using $MIB_DIR for uploaded or system-installed MIB files."
 
-echo "Deploying to /opt/simple-nms..."
-mkdir -p /opt/simple-nms/data
-cp -r "$PROJECT_ROOT"/src/simplenms/* /opt/simple-nms/
-cp "$PROJECT_ROOT"/requirements.txt /opt/simple-nms/
+echo "Deploying to /opt/sieco..."
+mkdir -p /opt/sieco/data
+cp -r "$PROJECT_ROOT"/src/sieco/* /opt/sieco/
+cp "$PROJECT_ROOT"/requirements.txt /opt/sieco/
 
 # Preserve config.json if it already exists to prevent losing user settings
-if [ -f /opt/simple-nms/config.json ]; then
+if [ -f /opt/sieco/config.json ]; then
     echo "Existing config.json found — preserving user settings."
 else
-    cp "$PROJECT_ROOT"/config.example.json /opt/simple-nms/config.json
+    cp "$PROJECT_ROOT"/config.example.json /opt/sieco/config.json
 fi
 
 # Match the service's data-directory configuration override.
 CFG_FILE=$(python3 -c "
 import json
 import os
-path = '/opt/simple-nms/config.json'
+path = '/opt/sieco/config.json'
 with open(path, encoding='utf-8') as f:
     cfg = json.load(f)
 data_dir = os.path.dirname(cfg.get('database', {}).get('path', 'data/events.db')) or 'data'
-overlay = os.path.join('/opt/simple-nms', data_dir, 'config.json')
+overlay = os.path.join('/opt/sieco', data_dir, 'config.json')
 if os.path.exists(overlay) and overlay != path:
     try:
         with open(overlay, encoding='utf-8') as f:
@@ -106,16 +126,16 @@ export CFG_FILE
 DATABASE_PATH=$(python3 -c "
 import json
 import os
-with open('/opt/simple-nms/config.json', encoding='utf-8') as f:
+with open('/opt/sieco/config.json', encoding='utf-8') as f:
     base = json.load(f)
 with open(os.environ['CFG_FILE'], encoding='utf-8') as f:
     cfg = json.load(f)
 path = cfg.get('database', {}).get('path', base.get('database', {}).get('path', 'data/events.db'))
-print(os.path.abspath(os.path.join('/opt/simple-nms', path)))
+print(os.path.abspath(os.path.join('/opt/sieco', path)))
 ")
 DATA_DIR=$(dirname "$DATABASE_PATH")
 case "$DATA_DIR" in
-    /|/opt/simple-nms)
+    /|/opt/sieco)
         echo "Error: database must be stored in a dedicated data directory."
         exit 1
         ;;
@@ -132,8 +152,8 @@ case "$SYSLOG_COLLECTOR" in
     rust)
         install_rust_toolchain
         cargo build --release --manifest-path "$PROJECT_ROOT/rust-syslog/Cargo.toml"
-        install -m 750 "$PROJECT_ROOT"/rust-syslog/target/release/simplenms-syslog /opt/simple-nms/simplenms-syslog.new
-        mv -f /opt/simple-nms/simplenms-syslog.new /opt/simple-nms/simplenms-syslog
+        install -m 750 "$PROJECT_ROOT"/rust-syslog/target/release/sieco-syslog /opt/sieco/sieco-syslog.new
+        mv -f /opt/sieco/sieco-syslog.new /opt/sieco/sieco-syslog
         cargo clean --manifest-path "$PROJECT_ROOT/rust-syslog/Cargo.toml"
         ;;
     python) ;;
@@ -160,7 +180,7 @@ done
 
 # Configure SNMP Trap community
 echo "Configuring SNMP Trap community..."
-DEFAULT_COMMUNITY=$(python3 -c "import json, os; print(json.load(open(os.environ['CFG_FILE'])).get('snmptrap', {}).get('community', 'simplenms'))" 2>/dev/null || echo "simplenms")
+DEFAULT_COMMUNITY=$(python3 -c "import json, os; print(json.load(open(os.environ['CFG_FILE'])).get('snmptrap', {}).get('community', 'sieco'))" 2>/dev/null || echo "sieco")
 read -r -p "SNMP Trap community [$DEFAULT_COMMUNITY]: " USER_COMMUNITY || true
 USER_COMMUNITY="${USER_COMMUNITY:-$DEFAULT_COMMUNITY}"
 WEB_PORT="$WEB_PORT" SNMP_COMMUNITY="$USER_COMMUNITY" SYSLOG_COLLECTOR="$SYSLOG_COLLECTOR" python3 -c "
@@ -193,50 +213,50 @@ with open(path, 'w', encoding='utf-8') as f:
 "
 
 echo "Installing Python dependencies..."
-python3 -m venv /opt/simple-nms/venv
-/opt/simple-nms/venv/bin/pip install --upgrade pip
-/opt/simple-nms/venv/bin/pip install -r /opt/simple-nms/requirements.txt
+python3 -m venv /opt/sieco/venv
+/opt/sieco/venv/bin/pip install --upgrade pip
+/opt/sieco/venv/bin/pip install -r /opt/sieco/requirements.txt
 
-test -f "$PROJECT_ROOT/deploy/simple-nms.service" || { echo "Error: deploy/simple-nms.service not found"; exit 1; }
-sed 's|/usr/bin/python3|/opt/simple-nms/venv/bin/python3|g' "$PROJECT_ROOT/deploy/simple-nms.service" > /etc/systemd/system/simple-nms.service
+test -f "$PROJECT_ROOT/deploy/sieco.service" || { echo "Error: deploy/sieco.service not found"; exit 1; }
+sed 's|/usr/bin/python3|/opt/sieco/venv/bin/python3|g' "$PROJECT_ROOT/deploy/sieco.service" > /etc/systemd/system/sieco.service
 
 # systemd accepts C-style quoted paths; double percent signs to avoid specifiers.
 python3 -c '
 import json
 import os
 print("\n[Service]\nReadWritePaths=" + json.dumps(os.environ["DATA_DIR"].replace("%", "%%"), ensure_ascii=False))
-' >> /etc/systemd/system/simple-nms.service
+' >> /etc/systemd/system/sieco.service
 
-chown root:root /etc/systemd/system/simple-nms.service
-chmod 644 /etc/systemd/system/simple-nms.service
+chown root:root /etc/systemd/system/sieco.service
+chmod 644 /etc/systemd/system/sieco.service
 
 echo "Configuring secure permissions (least privilege)..."
-# 1. Base directory and code files owned by root, group simplenms
-chown -R root:simplenms /opt/simple-nms
+# 1. Base directory and code files owned by root, group sieco
+chown -R root:sieco /opt/sieco
 
 # 2. Set directories to 750 (rwxr-x---) and files to 640 (rw-r-----) for the code
-find /opt/simple-nms -type d -exec chmod 750 {} +
-find /opt/simple-nms -type f -exec chmod 640 {} +
+find /opt/sieco -type d -exec chmod 750 {} +
+find /opt/sieco -type f -exec chmod 640 {} +
 
 # 3. Ensure entrypoints and venv binaries are executable by the group
-chmod 750 /opt/simple-nms/main.py
+chmod 750 /opt/sieco/main.py
 if [ "$SYSLOG_COLLECTOR" = "rust" ]; then
-    chmod 750 /opt/simple-nms/simplenms-syslog
+    chmod 750 /opt/sieco/sieco-syslog
 fi
-find /opt/simple-nms/venv/bin -type f -exec chmod 750 {} +
+find /opt/sieco/venv/bin -type f -exec chmod 750 {} +
 
-# 4. Make the persistent data directory fully owned and writable by the simplenms user
-chown -R simplenms:simplenms /opt/simple-nms/data
-find /opt/simple-nms/data -type d -exec chmod 770 {} +
-find /opt/simple-nms/data -type f -exec chmod 660 {} +
-chmod 700 /opt/simple-nms/data/tls
+# 4. Make the persistent data directory fully owned and writable by the sieco user
+chown -R sieco:sieco /opt/sieco/data
+find /opt/sieco/data -type d -exec chmod 770 {} +
+find /opt/sieco/data -type f -exec chmod 660 {} +
+chmod 700 /opt/sieco/data/tls
 
 # Grant access to custom database storage without changing unrelated files.
-chown simplenms:simplenms "$DATA_DIR" "$DATA_DIR/mibs"
+chown sieco:sieco "$DATA_DIR" "$DATA_DIR/mibs"
 chmod 770 "$DATA_DIR" "$DATA_DIR/mibs"
 for file in "$DATABASE_PATH" "$DATABASE_PATH-wal" "$DATABASE_PATH-shm" "$CFG_FILE"; do
     if [ -f "$file" ] && [[ "$file" == "$DATA_DIR/"* ]]; then
-        chown simplenms:simplenms "$file"
+        chown sieco:sieco "$file"
         chmod 660 "$file"
     fi
 done
@@ -260,10 +280,10 @@ if command -v ss >/dev/null 2>&1; then
     fi
 fi
 
-echo "Starting simple-nms..."
+echo "Starting sieco..."
 systemctl daemon-reload
-systemctl enable simple-nms
-systemctl restart simple-nms
+systemctl enable sieco
+systemctl restart sieco
 
 # Retrieve primary local IP address for user convenience
 PRIMARY_IP=$(hostname -I | awk '{print $1}' 2>/dev/null || ip route get 1.1.1.1 | awk '{print $7}' 2>/dev/null || echo "localhost")
@@ -272,16 +292,16 @@ if [ -z "$PRIMARY_IP" ]; then
 fi
 
 echo "=================================================================="
-echo "🎉 Simple NMS installed successfully!"
+echo "🎉 Simple Event Collector installed successfully!"
 echo "=================================================================="
 echo "👉 Web UI URL:       http://$PRIMARY_IP:$WEB_PORT"
-echo "👉 Check Status:     systemctl status simple-nms"
-echo "👉 View Logs:        journalctl -u simple-nms -f"
+echo "👉 Check Status:     systemctl status sieco"
+echo "👉 View Logs:        journalctl -u sieco -f"
 echo "------------------------------------------------------------------"
 echo "💡 Custom MIBs Guide:"
 echo "   Place your custom MIB files (.txt/.mib/.my) in:"
-echo "   /opt/simple-nms/data/mibs"
-echo "   Then restart the service to apply: sudo systemctl restart simple-nms"
+echo "   /opt/sieco/data/mibs"
+echo "   Then restart the service to apply: sudo systemctl restart sieco"
 echo "=================================================================="
 
 remove_rust_build_packages

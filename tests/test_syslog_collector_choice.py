@@ -6,7 +6,7 @@ import queue
 import sys
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "simplenms"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "sieco"))
 
 from collectors.rust_syslog import RustSyslogCollector
 from collectors.syslog_factory import build_syslog_collector

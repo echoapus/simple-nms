@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "simplenms"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "sieco"))
 
 from collectors.syslog_listener import SyslogTLSCollector
 from main import TLSCollectorManager
@@ -122,6 +122,6 @@ def test_tls_newline_delimited_event():
 
 
 if __name__ == "__main__":
-    raise SystemExit(run_suite("Simple NMS -- RFC 5425 Validation", [
+    raise SystemExit(run_suite("Simple Event Collector -- RFC 5425 Validation", [
         test_tls_octet_counted_event, test_hot_reload_closes_clients, test_tls_newline_delimited_event,
     ]))

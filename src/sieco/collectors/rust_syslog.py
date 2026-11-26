@@ -36,11 +36,11 @@ class RustSyslogCollector:
 
     @staticmethod
     def _default_binary() -> str:
-        installed = os.path.join(os.path.dirname(os.path.dirname(__file__)), "simplenms-syslog")
+        installed = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sieco-syslog")
         if os.path.isfile(installed):
             return installed
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        return os.path.join(project_root, "rust-syslog", "target", "release", "simplenms-syslog")
+        return os.path.join(project_root, "rust-syslog", "target", "release", "sieco-syslog")
 
     @staticmethod
     def _unlink(path: str) -> None:

@@ -34,7 +34,7 @@ struct Event {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: simplenms-syslog --host HOST --port PORT --socket PATH --control-socket PATH [--deny-ip IP]");
+    eprintln!("usage: sieco-syslog --host HOST --port PORT --socket PATH --control-socket PATH [--deny-ip IP]");
     std::process::exit(2);
 }
 
@@ -502,7 +502,7 @@ fn run(config: Config) -> io::Result<()> {
 
 fn main() {
     if let Err(error) = run(config()) {
-        eprintln!("simplenms-syslog: {error}");
+        eprintln!("sieco-syslog: {error}");
         std::process::exit(1);
     }
 }
